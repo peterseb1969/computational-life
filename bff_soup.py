@@ -350,8 +350,9 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     if cull_replicators and os.path.exists(culls_path):
         with open(culls_path) as f:
             culls = [json.loads(line) for line in f if line.strip()]
-    origin_keys = [c['key'] for c in culls if c.get('origin')]      # one key per distinct lineage seen so far
-    n_removed = sum(1 for c in culls if c['kind'] == 'replicator')
+    n_removed = sum(1 for c in culls if c['kind'] == 'replicator')   # every removed replicator is one origin:
+    # its lineage (offspring and carriers of its loop) goes with it, so a later appearance of the same
+    # engine was made anew from the pool
     outcome = OutcomeDetector(num_programs) if stop_outcome else None
     selfrep_slots = -1
     selfrep_strict_slots = -1
@@ -442,12 +443,6 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                             soup[slots] = rng.choice(256, size=(slots.size, TAPE_SIZE), p=cull_dist).astype(np.uint8)
                         event = {'epoch': epoch, 'key': key, 'count': int(slots.size), 'score': score, 'kind': kind}
                         if kind == 'replicator':
-                            # a re-formation of a lineage seen before (same copy loop, or within a few
-                            # edits of an earlier origin) is not a new origin
-                            new_origin = not any(core.same_lineage(key, k) for k in origin_keys)
-                            event['origin'] = new_origin
-                            if new_origin:
-                                origin_keys.append(key)
                             n_removed += 1
                         culls.append(event)
                         with open(culls_path, 'a') as f:
@@ -455,13 +450,12 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                         if kind == 'replicator':
                             n_lin = sum(1 for _, (_, _, kd) in doomed.items() if kd == 'lineage')
                             n_slots = sum(np.count_nonzero(cur_hash == uniq[j]) for j, (_, _, kd) in doomed.items() if kd == 'lineage')
-                            tag = f"origin {len(origin_keys)}" if new_origin else "re-formation of an earlier origin"
-                            print(f"*** cull at epoch {epoch}: {tag}, {key!r} ({slots.size} copies, score {score}); "
+                            print(f"*** cull at epoch {epoch}: origin {n_removed}, {key!r} ({slots.size} copies, score {score}); "
                                   f"its lineage: {n_lin} more species, {n_slots} slots, all replaced by random programs ***",
                                   flush=True)
                 if hits.size:
                     cur_hash, cur_len = core.compute_keys(soup)
-                    meta['cull_counts'] = {'removals': n_removed, 'origins': len(origin_keys),
+                    meta['cull_counts'] = {'origins': n_removed,
                                            'lineage_species': sum(1 for c in culls if c['kind'] == 'lineage')}
                     rd.write_meta(meta)
 
@@ -557,8 +551,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                           f"stopping at epoch {stop_at} ***", flush=True)
                     meta['stop_triggered'] = {'epoch': epoch, 'reason': reason, 'stop_at': stop_at}
                     rd.write_meta(meta)
-            if cull_replicators and stop_at is None and len(origin_keys) >= cull_replicators:
-                reason = f"culled {cull_replicators} distinct replicator origins ({n_removed} removals; origin-rate experiment)"
+            if cull_replicators and stop_at is None and n_removed >= cull_replicators:
+                reason = f"culled {cull_replicators} replicator origins (origin-rate experiment)"
                 stop_at = epoch
                 print(f"*** {reason}; stopping ***", flush=True)
                 meta['stop_triggered'] = {'epoch': epoch, 'reason': reason, 'stop_at': stop_at}
@@ -675,8 +669,8 @@ def main(argv=None):
     g.add_argument("--cull-replicators", type=int, default=0, metavar="N",
                    help="origin-rate experiment: every --cull-interval epochs test the most common long species and "
                         "replace every copy of any self-replicator by fresh random programs (from the run's initial "
-                        "distribution); the removals go to meta.json; stop after N distinct origins (a lineage that "
-                        "re-forms from its fragments is counted once)")
+                        "distribution) together with its lineage (offspring and carriers of its copy loop), so that "
+                        "each later appearance is made anew from the pool; every removal is one origin; stop after N")
     g.add_argument("--cull-interval", type=int, default=4, help="epochs between removal tests (default: 4)")
     g.add_argument("--stop-after", type=int, default=None,
                    help="keep running this many epochs after a stop condition fires (2048 with --stats)")

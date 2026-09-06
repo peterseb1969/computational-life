@@ -662,7 +662,9 @@ def main(argv=None):
         ev = [c for c in events if c.get('kind', 'replicator') == 'replicator']
         if not ev:
             print("no replicators were removed in this run (was it started with --cull-replicators?)"); return
-        # one lineage: keys within 3 edits of each other, or sharing an innermost copy loop
+        last = run.last_epoch()
+        # every removal is an origin (its lineage was swept with it); group the origins by engine, i.e. by
+        # shared innermost copy loop or a few edits, to see which engines the soup finds and how often
         keys = [c['key'] for c in ev]
         parent = list(range(len(keys)))
         def find(i):
@@ -676,23 +678,29 @@ def main(argv=None):
         groups = {}
         for i in range(len(keys)):
             groups.setdefault(find(i), []).append(i)
-        fams = list(groups.values())
-        origins = sorted((min(ev[i]['epoch'] for i in f), f) for f in fams)
-        last = run.last_epoch()
-        if a.json:
-            print(json.dumps({'removals': len(ev), 'origins': [{'epoch': e, 'removals': len(f), 'keys': [ev[i]['key'] for i in f]}
-                                                                for e, f in origins], 'last_epoch': last}, indent=1)); return
+        engines = sorted(groups.values(), key=lambda g: (-len(g), ev[g[0]]['epoch']))
+        eps = np.array([c['epoch'] for c in ev])
         n_lin = sum(1 for c in events if c.get('kind') == 'lineage')
-        print(f"{len(ev)} replicators removed over {last + 1} epochs ({n_lin} further species removed as their lineages); "
-              f"{len(origins)} distinct origins (removed keys within 3 edits of each other or sharing a copy loop count as one lineage re-forming)")
-        print(f"{'origin':>7} {'first':>7} {'removals':>8}  first key")
-        for e, f in origins:
-            print(f"{origins.index((e, f)) + 1:7d} {e:7d} {len(f):8d}  {ev[min(f, key=lambda i: ev[i]['epoch'])]['key']}")
-        eps = [e for e, _ in origins]
+        if a.json:
+            print(json.dumps({'origins': len(ev), 'last_epoch': last, 'lineage_species_removed': n_lin,
+                              'engines': [{'origins': len(g), 'first_epoch': min(ev[i]['epoch'] for i in g),
+                                           'loops': sorted(core.copy_loops(keys[g[0]])), 'keys': [keys[i] for i in g]} for g in engines]}, indent=1))
+            return
+        print(f"{len(ev)} origins over {last + 1} epochs ({n_lin} further species removed as their lineages); "
+              f"first at {eps.min()}, {1000 * len(ev) / (last + 1):.2f} per 1000 epochs overall")
         if len(eps) > 1:
-            gaps = np.diff(eps)
-            print(f"epochs between origins: median {np.median(gaps):.0f}, mean {gaps.mean():.0f}; "
-                  f"origins per 1000 epochs: {1000 * len(eps) / (last + 1):.2f}")
+            gaps = np.diff(np.sort(eps))
+            print(f"epochs between origins: median {np.median(gaps):.0f}, mean {gaps.mean():.0f}")
+            step = max(1000, int(round((last + 1) / 10, -3)))
+            print("origins per window: " + ", ".join(f"{lo}-{min(lo + step, last + 1)}: {int(((eps >= lo) & (eps < lo + step)).sum())}"
+                                                   for lo in range(0, last + 1, step)))
+        print(f"{len(engines)} distinct engines (origins sharing a copy loop or within 3 edits):")
+        print(f"{'origins':>7} {'first':>7}  engine")
+        for g in engines[:25]:
+            i0 = min(g, key=lambda i: ev[i]['epoch'])
+            print(f"{len(g):7d} {ev[i0]['epoch']:7d}  {' '.join(sorted(core.copy_loops(keys[i0]))) or '(no loop)'}   e.g. {keys[i0][:40]}")
+        if len(engines) > 25:
+            print(f"   ... and {len(engines) - 25} more engines")
         return
     if a.cmd == 'info':
         e = run.last_epoch()
