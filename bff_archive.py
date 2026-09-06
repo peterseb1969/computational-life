@@ -205,6 +205,9 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
     candidates = [e for e in (events['entropy_gt_3'], events['selfrep_gt_50pct']) if e is not None]
     transition = min(candidates) if candidates else events['share_gt_20pct']
     events['transition_epoch'] = transition
+    # the plateau phenomenon: replicators present but not taking over
+    before = sr_slots[ep < transition] if transition is not None else sr_slots
+    events['max_selfrep_share_before_takeover'] = float(before.max() / run.num_programs) if before.size and before.max() > 0 else 0.0
     dt = np.diff(log['elapsed_s'])          # elapsed restarts at 0 after a resume: count only forward steps
     fwd = dt >= 0
     events['epochs_per_second'] = float(fwd.sum() / dt[fwd].sum()) if fwd.any() and dt[fwd].sum() > 0 else None
@@ -266,8 +269,15 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
         keep |= (ep >= transition - 512) & (ep <= transition + 512)
     log_out = {c: v[keep].tolist() for c, v in log.items()}
 
+    host = meta.get('host') or {}
+    if not host:                                         # runs recorded before host info existed
+        import socket, platform
+        host = {'host': socket.gethostname().split('.')[0].lower(), 'machine': platform.machine(), 'inferred': True}
+    protocol = meta.get('protocol') or f"{meta['num_programs'] // 1024}k-{meta.get('max_steps', 32768)}" + \
+        ("-mut" if meta.get('mutation_prob', 0) > 0 else "")
     archive = {
-        'run': name, 'path': os.path.abspath(run_path), 'archived': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'run': name, 'host': host, 'protocol': protocol, 'path': os.path.abspath(run_path),
+        'archived': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'params': {k: meta.get(k) for k in ('num_programs', 'tape_size', 'seed', 'mutation_prob', 'max_steps',
                                              'checkpoint_interval', 'lineage_min_len', 'promote_count', 'created',
                                              'finished', 'resumes', 'seed_programs')},
@@ -290,20 +300,22 @@ def save_archive(archive, out_path):
     return os.path.getsize(out_path)
 
 
-def default_archive_path(run_path, archive_dir='archive'):
-    return os.path.join(archive_dir, os.path.basename(os.path.normpath(run_path)) + '.json')
+def default_archive_path(run_path, archive_dir='archive', host=None):
+    """archive/<host>-<run>.json: runs are named by seed, so the host keeps machines apart."""
+    name = os.path.basename(os.path.normpath(run_path))
+    return os.path.join(archive_dir, f"{host}-{name}.json" if host else f"{name}.json")
 
 
-def build_and_save(run_path, out_path=None, **kw):
-    out_path = out_path or default_archive_path(run_path)
+def build_and_save(run_path, out_path=None, archive_dir='archive', **kw):
     archive = build_archive(run_path, **kw)
+    out_path = out_path or default_archive_path(run_path, archive_dir, archive['host'].get('host'))
     size = save_archive(archive, out_path)
     return out_path, size, archive
 
 
 def print_summary(a):
     ev = a['events']
-    print(f"Run {a['run']}: {a['params']['num_programs']} programs, seed {a['params']['seed']}, "
+    print(f"Run {a['run']} on {a.get('host', {}).get('host', '?')} [{a.get('protocol', '?')}]: {a['params']['num_programs']} programs, seed {a['params']['seed']}, "
           f"{ev['last_epoch']} epochs, {ev['epochs_per_second'] or 0:.1f} epochs/s")
     print(f"  transition: {ev['transition_epoch']} (entropy > 3: {ev['entropy_gt_3']}, replicators > 50%: {ev.get('selfrep_gt_50pct')})   "
           f"first self-replicator: {ev['first_selfrep_epoch']}   "
@@ -323,12 +335,14 @@ def print_summary(a):
 def main(argv=None):
     p = argparse.ArgumentParser(description="Build the archive of a BFF run")
     p.add_argument('run')
-    p.add_argument('--out', default=None, help='output file (default archive/<run>.json)')
+    p.add_argument('--out', default=None, help='output file (default <archive-dir>/<host>-<run>.json)')
+    p.add_argument('--archive-dir', default=os.environ.get('BFF_ARCHIVE_DIR', 'archive'))
     p.add_argument('--top', type=int, default=20)
     p.add_argument('--tapes', type=int, default=5, help='families whose birth tapes are replayed and stored')
     p.add_argument('--tape-births', type=int, default=12, help='birth events per family to store tapes for')
     a = p.parse_args(argv)
-    out, size, archive = build_and_save(a.run, a.out, top_n=a.top, tape_families=a.tapes, tape_births=a.tape_births)
+    out, size, archive = build_and_save(a.run, a.out, archive_dir=a.archive_dir, top_n=a.top, tape_families=a.tapes,
+                                        tape_births=a.tape_births)
     print_summary(archive)
     print(f"  written to {out} ({size / 1024:.0f} KB)")
 

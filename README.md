@@ -141,7 +141,9 @@ output:
   --lineage-budget-mb M Stop appending change records at this file size (default: 2048)
   --metric-interval N   Epochs between compression metrics (default: 1)
   --metric-sample N     Programs to compress for the metrics (default: 0 = whole soup)
-  --no-archive          Do not build archive/<run>.json on exit
+  --no-archive          Do not build the run archive on exit
+  --archive-dir DIR     Where archives go (default: archive/, or $BFF_ARCHIVE_DIR)
+  --protocol NAME       Label of the setup for statistics (default: derived, e.g. 128k-8192-mut)
 stop conditions (optional):
   --stop-entropy X      Stop when higher-order entropy exceeds X (may fire a few epochs late)
   --stop-share X        Stop when one species exceeds X percent of the soup
@@ -212,8 +214,12 @@ The run directory is a large working set. The durable output of a run is its **a
 
 ```bash
 python3 bff_compare.py                 # table of all archived runs
+python3 bff_compare.py --survival      # fraction transitioned by epoch, per protocol (censoring-aware)
 python3 bff_compare.py --families      # leading family cores across runs, recurring cores, edit distances
+python3 bff_compare.py --csv runs.csv  # one row per run
 ```
+
+**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192` or `128k-8192-mut`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of a results repository, and commit the archive when a run ends. For transition statistics let runs stop themselves shortly after takeover: `--stop-selfreps 65536 --stop-after 2048 --epochs 60000`. A run that reaches the epoch cap without a transition is a censored observation, and the survival table treats it as such.
 
 ## Metrics
 

@@ -23,6 +23,8 @@ Usage:
 import argparse
 import json
 import os
+import platform
+import socket
 import sys
 import time
 from collections import deque
@@ -45,6 +47,27 @@ def _now():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
+def host_name():
+    return socket.gethostname().split('.')[0].lower()
+
+
+def host_info():
+    try:
+        import numba
+        threads = numba.config.NUMBA_NUM_THREADS
+    except Exception:  # noqa: BLE001
+        threads = None
+    return {'host': host_name(), 'machine': platform.machine(), 'system': platform.system(),
+            'processor': platform.processor() or platform.machine(), 'cpus': os.cpu_count(), 'threads': threads,
+            'python': platform.python_version()}
+
+
+def protocol_name(num_programs, max_steps, mutation_prob):
+    """Canonical label of the experimental setup, so runs can be grouped for statistics."""
+    size = f"{num_programs // 1024}k" if num_programs % 1024 == 0 else str(num_programs)
+    return f"{size}-{max_steps}" + ("-mut" if mutation_prob > 0 else "")
+
+
 def _warmup():
     """Trigger Numba compilation on tiny inputs so timings exclude JIT."""
     dummy = np.zeros((4, TAPE_SIZE), dtype=np.uint8)
@@ -61,7 +84,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
              lineage_min_len=DEFAULT_MIN_LEN, lineage_budget_mb=DEFAULT_BUDGET_MB,
              lineage_window=None, promote_count=None, cascade_depth=None, cascade_max=None,
              stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0,
-             print_interval=100, seed_programs=None, archive=True):
+             print_interval=100, seed_programs=None, archive=True, archive_dir='archive', protocol=None):
     """Run (or resume) the simulation. Returns the final soup."""
 
     # ---- resolve run directory and starting state --------------------------
@@ -141,6 +164,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         'stop': {'entropy': stop_entropy, 'share': stop_share, 'selfreps': stop_selfreps,
                  'after': stop_after},
         'log_columns': LOG_COLUMNS,
+        'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob),
+        'host': host_info(),
     })
     rd.write_meta(meta)
     ckpt_meta = {'seed': seed, 'mutation_prob': mutation_prob, 'max_steps': max_steps}
@@ -313,7 +338,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         try:
             from bff_archive import build_and_save, print_summary
             print("Building the run archive (winners, families, emergence story)...", flush=True)
-            out, size, arc = build_and_save(rd.path, verbose=False)
+            out, size, arc = build_and_save(rd.path, archive_dir=archive_dir, verbose=False)
             print_summary(arc)
             print(f"Archive written to {out} ({size / 1024:.0f} KB)")
         except Exception as e:  # noqa: BLE001 - never lose a run over the summary
@@ -363,7 +388,11 @@ def main(argv=None):
     g.add_argument("--metric-sample", type=int, default=0,
                    help="programs to compress for the metrics (0 = whole soup)")
     g.add_argument("--print-interval", type=int, default=100)
-    g.add_argument("--no-archive", action="store_true", help="do not build archive/<run>.json on exit")
+    g.add_argument("--no-archive", action="store_true", help="do not build the run archive on exit")
+    g.add_argument("--archive-dir", type=str, default=os.environ.get("BFF_ARCHIVE_DIR", "archive"),
+                   help="where archives are written (default: archive/, or $BFF_ARCHIVE_DIR)")
+    g.add_argument("--protocol", type=str, default=None,
+                   help="label of the experimental setup for statistics (default: derived, e.g. 128k-8192-mut)")
     g = p.add_argument_group("stop conditions (optional, first one met wins)")
     g.add_argument("--stop-entropy", type=float, default=None, help="stop when higher-order entropy exceeds this")
     g.add_argument("--stop-share", type=float, default=None,
@@ -386,6 +415,7 @@ def main(argv=None):
         stop_entropy=args.stop_entropy, stop_share=args.stop_share,
         stop_selfreps=args.stop_selfreps, stop_after=args.stop_after,
         print_interval=args.print_interval, seed_programs=args.seed_programs, archive=not args.no_archive,
+        archive_dir=args.archive_dir, protocol=args.protocol,
     )
 
 
