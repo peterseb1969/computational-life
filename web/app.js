@@ -263,13 +263,19 @@ const keyOf = (bytes) => Array.from(bytes).filter((b) => CMD_CHARS[b]).map((b) =
 
 class BFF {
   constructor(tape, maxSteps) { this.initial = Uint8Array.from(tape); this.max = maxSteps; this.reset(); }
-  reset() { this.tape = Uint8Array.from(this.initial); this.pc = 0; this.h0 = 0; this.h1 = 0; this.ops = 0; this.steps = 0; this.halted = null; this.lastWrite = -1; }
+  reset() { this.tape = Uint8Array.from(this.initial); this.pc = 0; this.h0 = 0; this.h1 = 0; this.ops = 0; this.steps = 0; this.halted = null; this.lastWrite = -1; this.tortoise = -1; this.power = 1; this.lam = 0; }
+  changed() { this.tortoise = -1; this.power = 1; this.lam = 0; }
   step() {
     if (this.halted) return false;
     if (this.steps >= this.max) { this.halted = 'step budget spent'; return false; }
     if (this.pc < 0 || this.pc >= 128) { this.halted = 'program counter left the tape'; return false; }
     this.steps++;
     this.h0 &= 127; this.h1 &= 127;
+    // Brent's cycle detection over (pc, head0, head1) since the tape last changed (same as bff_core.evaluate)
+    const state = (this.pc << 14) | (this.h0 << 7) | this.h1;
+    if (state === this.tortoise) { this.halted = 'stuck in a loop that can never change the tape again'; return false; }
+    if (this.lam === this.power) { this.tortoise = state; this.power <<= 1; this.lam = 0; }
+    this.lam++;
     const t = this.tape, c = t[this.pc];
     this.lastWrite = -1;
     switch (c) {
@@ -277,10 +283,10 @@ class BFF {
       case 62: this.h0++; this.ops++; break;
       case 123: this.h1--; this.ops++; break;
       case 125: this.h1++; this.ops++; break;
-      case 43: t[this.h0]++; this.ops++; this.lastWrite = this.h0; break;
-      case 45: t[this.h0]--; this.ops++; this.lastWrite = this.h0; break;
-      case 46: t[this.h1] = t[this.h0]; this.ops++; this.lastWrite = this.h1; break;
-      case 44: t[this.h0] = t[this.h1]; this.ops++; this.lastWrite = this.h0; break;
+      case 43: t[this.h0]++; this.ops++; this.lastWrite = this.h0; this.changed(); break;
+      case 45: t[this.h0]--; this.ops++; this.lastWrite = this.h0; this.changed(); break;
+      case 46: this.ops++; if (t[this.h1] !== t[this.h0]) { t[this.h1] = t[this.h0]; this.lastWrite = this.h1; this.changed(); } break;
+      case 44: this.ops++; if (t[this.h0] !== t[this.h1]) { t[this.h0] = t[this.h1]; this.lastWrite = this.h0; this.changed(); } break;
       case 91: this.ops++;
         if (t[this.h0] === 0) {
           let d = 1; this.pc++;

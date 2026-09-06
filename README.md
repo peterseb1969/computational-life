@@ -34,6 +34,12 @@ BFF (Brainfuck variant) modifies standard Brainfuck for self-modification instea
 
 **Note:** Standard Brainfuck's I/O commands (`.` and `,`) are repurposed for copying between heads.
 
+### Execution semantics
+
+Both heads and the program counter start at 0; heads wrap modulo 128; non-instruction bytes are skipped. A tape stops when the program counter leaves the tape, a bracket is unmatched, or the step budget (`--max-steps`, default 32768) is spent.
+
+The interpreter also stops a program that is **provably stuck**: once the tape has stopped changing, the machine state is just (program counter, head0, head1), and if that state recurs the program loops forever without writing again, so the tape is already final. This is detected with Brent's cycle algorithm and gives exactly the same tapes as running out the budget, about 9x faster on a mature soup where most tapes spin. The only visible effect is that "instructions per tape" counts useful work rather than spinning, so it no longer jumps into the thousands for stuck programs.
+
 ### Emergent Replicators
 
 A replicator that emerges may look like the following and often has a palindrome-like pattern:
@@ -262,7 +268,7 @@ In the visualizer:
 A successful transition typically shows:
 - Sudden entropy spike (0 → 4+)
 - Bits per byte drops (8 → 4 or lower)
-- Operations per pair jumps from hundreds to thousands
+- Instructions per tape rise as copy loops take over
 
 ## References
 

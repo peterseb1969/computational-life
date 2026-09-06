@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""
+Regression tests for the BFF kernel. Run: ../.venv/bin/python tests/test_kernel.py
+
+1. The Numba interpreter (with stuck-program detection) must produce the same
+   tapes as a plain reference interpreter that always runs out the step budget.
+2. The fixture replicators must pass the self-replication test; random programs must not.
+3. A short run must be reproducible from its own checkpoints (replay exactness).
+"""
+import os
+import sys
+import tempfile
+
+import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+import bff_core as core  # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.join(HERE, '..')
+
+
+def reference_evaluate(tape, max_steps):
+    """Original semantics: runs until halt or budget, no cycle detection."""
+    head0 = head1 = pc = 0
+    n = len(tape)
+    for _ in range(max_steps):
+        if pc < 0 or pc >= n:
+            break
+        head0 &= n - 1
+        head1 &= n - 1
+        cmd = tape[pc]
+        if cmd == 60: head0 -= 1
+        elif cmd == 62: head0 += 1
+        elif cmd == 123: head1 -= 1
+        elif cmd == 125: head1 += 1
+        elif cmd == 43: tape[head0] = (int(tape[head0]) + 1) & 0xFF
+        elif cmd == 45: tape[head0] = (int(tape[head0]) - 1) & 0xFF
+        elif cmd == 46: tape[head1] = tape[head0]
+        elif cmd == 44: tape[head0] = tape[head1]
+        elif cmd == 91:
+            if tape[head0] == 0:
+                depth, pc = 1, pc + 1
+                while pc < n and depth > 0:
+                    if tape[pc] == 93: depth -= 1
+                    elif tape[pc] == 91: depth += 1
+                    pc += 1
+                pc -= 1
+                if depth != 0: break
+        elif cmd == 93:
+            if tape[head0] != 0:
+                depth, pc = 1, pc - 1
+                while pc >= 0 and depth > 0:
+                    if tape[pc] == 91: depth -= 1
+                    elif tape[pc] == 93: depth += 1
+                    pc -= 1
+                pc += 1
+                if depth != 0: break
+        pc += 1
+    return tape
+
+
+def test_interpreter_matches_reference():
+    rng = np.random.default_rng(0)
+    reps = np.load(os.path.join(ROOT, 'testdata', 'replicators_run1.npy'))
+    cases = []
+    for _ in range(150):                                   # random tapes with a high instruction density
+        t = rng.integers(0, 256, 128, dtype=np.uint8)
+        mask = rng.random(128) < 0.35
+        t[mask] = rng.choice(list(core.COMMAND_BYTES), mask.sum())
+        cases.append(t)
+    for r in reps:                                          # replicators against random / each other
+        cases.append(np.concatenate([r, rng.integers(0, 256, 64, dtype=np.uint8)]))
+        cases.append(np.concatenate([r, reps[rng.integers(len(reps))]]))
+    for budget in (8192, 32768):
+        for i, t in enumerate(cases):
+            a = t.copy(); b = t.copy()
+            core.evaluate(a, budget)
+            reference_evaluate(b, budget)
+            assert np.array_equal(a, b), f"tape {i} differs from reference at budget {budget}"
+    print(f"ok  interpreter == reference on {len(cases)} tapes x 2 budgets")
+
+
+def test_selfrep_fixtures():
+    reps = np.load(os.path.join(ROOT, 'testdata', 'replicators_run1.npy'))
+    rnd = np.load(os.path.join(ROOT, 'testdata', 'random_programs.npy'))
+    s = core.selfrep_test(np.vstack([reps, rnd]), seed=1)
+    assert (s[:len(reps)] >= core.SELFREP_THRESHOLD).all(), s[:len(reps)]
+    assert (s[len(reps):] < core.SELFREP_THRESHOLD).all(), s[len(reps):]
+    print(f"ok  selfrep: replicators {s[:len(reps)].tolist()}, random max {int(s[len(reps):].max())}")
+
+
+def test_replay_exactness():
+    from bff_soup import run_soup
+    from bff_query import Run
+    with tempfile.TemporaryDirectory() as d:
+        rd = os.path.join(d, 'r')
+        run_soup(num_programs=2048, max_epochs=120, seed=5, run_dir_path=rd, checkpoint_interval=40,
+                 print_interval=10 ** 9, archive=False)
+        run = Run(rd)
+        for e in (40, 80):
+            ck, _ = core.load_checkpoint(run.rd.checkpoint_path(e))
+            assert np.array_equal(run.soup_at(e), ck), f"replay to {e} differs from checkpoint"
+        run.db.close()
+    print("ok  replay matches checkpoints")
+
+
+if __name__ == '__main__':
+    import io, contextlib
+    test_interpreter_matches_reference()
+    test_selfrep_fixtures()
+    with contextlib.redirect_stdout(io.StringIO()):
+        test_replay_exactness()
+    print("ok  replay matches checkpoints")
+    print("all tests passed")

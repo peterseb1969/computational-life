@@ -56,13 +56,22 @@ def evaluate(tape, max_steps):
     """
     Execute BFF on a 128-byte tape in place. Both heads and the program
     counter start at 0; heads wrap modulo 128. Execution stops when the
-    program counter leaves the tape, a bracket is unmatched, or the step
-    budget is spent. Returns the number of instructions executed.
+    program counter leaves the tape, a bracket is unmatched, the step budget
+    is spent, or the program is provably stuck: once the tape has stopped
+    changing, the machine state is just (pc, head0, head1), and if that state
+    recurs the program loops forever without ever writing again, so the tape
+    is already final (Brent's cycle detection; the outcome is identical to
+    running out the budget, only fewer instructions are counted).
+    Returns the number of instructions executed.
     """
     head0 = 0
     head1 = 0
     pc = 0
     ops = 0
+    # cycle detection over (pc, head0, head1) since the last change of the tape
+    tortoise = -1
+    power = 1
+    lam = 0
 
     for _ in range(max_steps):
         if pc < 0 or pc >= COMBINED_SIZE:
@@ -70,6 +79,15 @@ def evaluate(tape, max_steps):
 
         head0 = head0 & (COMBINED_SIZE - 1)
         head1 = head1 & (COMBINED_SIZE - 1)
+
+        state = (pc << 14) | (head0 << 7) | head1
+        if state == tortoise:
+            break                       # same state, same tape: infinite loop, nothing can change
+        if lam == power:
+            tortoise = state
+            power <<= 1
+            lam = 0
+        lam += 1
 
         cmd = tape[pc]
 
@@ -88,15 +106,29 @@ def evaluate(tape, max_steps):
         elif cmd == PLUS:
             tape[head0] = (tape[head0] + 1) & 0xFF
             ops += 1
+            tortoise = -1
+            power = 1
+            lam = 0
         elif cmd == MINUS:
             tape[head0] = (tape[head0] - 1) & 0xFF
             ops += 1
+            tortoise = -1
+            power = 1
+            lam = 0
         elif cmd == COPY_TO_HEAD1:
-            tape[head1] = tape[head0]
             ops += 1
+            if tape[head1] != tape[head0]:
+                tape[head1] = tape[head0]
+                tortoise = -1
+                power = 1
+                lam = 0
         elif cmd == COPY_TO_HEAD0:
-            tape[head0] = tape[head1]
             ops += 1
+            if tape[head0] != tape[head1]:
+                tape[head0] = tape[head1]
+                tortoise = -1
+                power = 1
+                lam = 0
         elif cmd == LOOP_START:
             ops += 1
             if tape[head0] == 0:
