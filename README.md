@@ -234,7 +234,8 @@ python3 bff_compare.py --csv runs.csv  # one row per run
 
 Write-ups of what the runs showed live in `docs/findings/`; the run archives they rest on are published in [computational-life-results](https://github.com/peterseb1969/computational-life-results):
 
-- [A parasite kills the first life in a BFF soup](docs/findings/parasite-macbook-1.md): emergence at 49k epochs, a loopless variant that reproduces by hijacking the replicator's copy loop, host extinction, parasite extinction, decay back to noise.
+- [A parasite kills the first life in a BFF soup](docs/findings/parasite-macbook-1.md): emergence at 49k epochs, a loopless variant that reproduces by hijacking the replicator's copy loop, host extinction, parasite extinction, a desert, a crystal.
+- [Catalogue of hosts and parasites](docs/findings/parasite-catalogue.md): every pair found so far, with the raw bytes to replay them in the stepper.
 
 ## Metrics
 
