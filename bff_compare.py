@@ -113,7 +113,7 @@ def survival(rows):
         times = [r['transition'] if r['transition'] is not None else r['epochs'] for r in rs]
         events = [r['transition'] is not None for r in rs]
         horizon = max(times) if times else 0
-        at = [e for e in SURVIVAL_EPOCHS if e <= horizon] or [horizon]
+        at = [e for e in SURVIVAL_EPOCHS if e < horizon] + [horizon]
         km = kaplan_meier(times, events, at)
         result[proto] = {'runs': len(rs), 'transitions': sum(events),
                          'transition_epochs': sorted(t for t, e in zip(times, events) if e),
@@ -143,7 +143,8 @@ def family_comparison(archives, top=3):
                             'ops': f['profile']['ops_per_execution']})
     by_core = {}
     for e in entries:
-        by_core.setdefault(e['core'], set()).add(f"{e['host']}/{e['run']}")
+        if e['selfrep'] >= 5 and e['core']:
+            by_core.setdefault(e['core'], set()).add(f"{e['host']}/{e['run']}")
     recurring = {c: sorted(r) for c, r in by_core.items() if len(r) > 1}
     leads = [(f"{(a.get('host') or {}).get('host', '?')}/{a['run']}", a['families'][0]['core']) for a in archives
              if a['families'] and a['families'][0]['selfrep_score'] >= 5]

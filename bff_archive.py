@@ -202,7 +202,11 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
     # entropy above 3, as in run 44). The transition epoch is the earliest of the two signals.
     sr_slots = log['selfrep_slots']
     events['selfrep_gt_50pct'] = first_epoch_where(ep, sr_slots, lambda v: v >= 0.5 * run.num_programs)
-    candidates = [e for e in (events['entropy_gt_3'], events['selfrep_gt_50pct']) if e is not None]
+    # ... or the diversity collapses: a pre-transition soup holds tens of thousands of distinct keys,
+    # a taken-over soup a few hundred (run 46: 362 species, one family at 75%, entropy 2.3)
+    events['unique_lt_5pct'] = first_epoch_where(ep, log['unique_species'], lambda v: v < 0.05 * run.num_programs)
+    candidates = [e for e in (events['entropy_gt_3'], events['selfrep_gt_50pct'], events['unique_lt_5pct'])
+                  if e is not None]
     transition = min(candidates) if candidates else events['share_gt_20pct']
     events['transition_epoch'] = transition
     # the plateau phenomenon: replicators present but not taking over
@@ -228,7 +232,10 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
     keys = [w['key'] for w in end_winners]
     families = []
     for fi, members in enumerate(cluster_families(keys)):
-        members = sorted(members, key=lambda i: -end_winners[i]['count'])
+        # representative: the most common member that replicates, else the most common member
+        # (run 46: the most common key of the winning family was a broken variant of the replicator pair)
+        members = sorted(members, key=lambda i: (-(end_winners[i]['selfrep_score'] >= core.SELFREP_THRESHOLD),
+                                                 -end_winners[i]['count']))
         rep = end_winners[members[0]]
         # orient every member like the representative (reverse mirror-image members) before finding the core
         oriented = [keys[i] if edit_distance(keys[i], rep['key']) <= edit_distance(keys[i][::-1], rep['key'])
@@ -240,7 +247,8 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
             'members': [keys[i] for i in members],
             'mirror_members': sum(1 for i, o in zip(members, oriented) if o != keys[i]),
             'share': float(sum(end_winners[i]['share'] for i in members)),
-            'selfrep_score': rep['selfrep_score'],
+            'selfrep_score': max(end_winners[i]['selfrep_score'] for i in members),
+            'replicating_members': sum(1 for i in members if end_winners[i]['selfrep_score'] >= core.SELFREP_THRESHOLD),
             'profile': functional_profile(rep['program'], run.max_steps),
         }
         for i in members:
@@ -317,7 +325,8 @@ def print_summary(a):
     ev = a['events']
     print(f"Run {a['run']} on {a.get('host', {}).get('host', '?')} [{a.get('protocol', '?')}]: {a['params']['num_programs']} programs, seed {a['params']['seed']}, "
           f"{ev['last_epoch']} epochs, {ev['epochs_per_second'] or 0:.1f} epochs/s")
-    print(f"  transition: {ev['transition_epoch']} (entropy > 3: {ev['entropy_gt_3']}, replicators > 50%: {ev.get('selfrep_gt_50pct')})   "
+    print(f"  transition: {ev['transition_epoch']} (entropy > 3: {ev['entropy_gt_3']}, replicators > 50%: {ev.get('selfrep_gt_50pct')}, "
+          f"species < 5%: {ev.get('unique_lt_5pct')})   "
           f"first self-replicator: {ev['first_selfrep_epoch']}   "
           f"share > 5%: {ev['share_gt_5pct']}   share > 20%: {ev['share_gt_20pct']}")
     print(f"  final: entropy {a['final']['higher_entropy']:.2f}, bpb {a['final']['bpb']:.2f}, "

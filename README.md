@@ -206,7 +206,7 @@ Add `--json` before a `bff_query.py` subcommand for machine-readable output. Rep
 
 The run directory is a large working set. The durable output of a run is its **archive**, one JSON file of a few hundred KB written to `archive/<run>.json` when the simulation finishes or is stopped (or with `python3 bff_archive.py runs/44` at any time). Archives are not committed to this repository. An archive contains:
 
-- run facts and event epochs: transition (entropy > 3, or half the soup holding self-replicators, whichever comes first), first self-replicator, top-species share crossings
+- run facts and event epochs: transition (the earliest of: entropy > 3, half the soup holding self-replicators, distinct keys below 5% of the soup), first self-replicator, top-species share crossings
 - the top 20 species at the end and at 256, 1024 and 4096 epochs after the transition, each with raw bytes, share, self-replication score and birth
 - **families**: the winners clustered into variants of one core (edit distance ≤ 3, up to reversal), with a functional profile of the representative: instruction usage, writing head, instructions per execution, faithful generations, direct or mirror copying
 - the emergence story: the ancestry tree of each family's representative, and for the five leading families the exact tapes of the birth events along the primary ancestor line
