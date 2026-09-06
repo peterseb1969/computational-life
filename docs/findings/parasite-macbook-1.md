@@ -4,7 +4,7 @@
 
 ## Summary
 
-After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and took over the soup within a thousand epochs. Thirty-five epochs after its birth, a copy error produced a variant that had lost the two closing brackets of its copy loop. That variant cannot copy anything, yet it reproduces: its first instructions leave the heads in the positions the replicator's loop expects, and its unmatched opening bracket lets execution run on into the partner's code. When the partner is the replicator, the replicator's own loop copies the parasite over the replicator. The parasite also survives encounters that destroy the replicator. Over 17,000 epochs it drove the replicator to extinction, held 99 percent of the soup for a moment, and then, with no host left to reproduce it, eroded away. What remained was not the random soup of the beginning but a desert: debris of the parasite, converging rather than diversifying, without a single closing bracket or `+`/`-` left to build a new loop from. By epoch 150,000 no new life had appeared. One seed, one complete ecological cycle: emergence, takeover, parasitism, host extinction, parasite extinction, and a soup that can no longer evolve.
+After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and took over the soup within a thousand epochs. Thirty-five epochs after its birth, a copy error produced a variant that had lost the two closing brackets of its copy loop. That variant cannot copy anything, yet it reproduces: its first instructions leave the heads in the positions the replicator's loop expects, and its unmatched opening bracket lets execution run on into the partner's code. When the partner is the replicator, the replicator's own loop copies the parasite over the replicator. The parasite also survives encounters that destroy the replicator. Over 17,000 epochs it drove the replicator to extinction, held 99 percent of the soup for a moment, and then, with no host left to reproduce it, eroded away. What remained was not the random soup of the beginning but a desert: debris of the parasite, converging rather than diversifying, without a single closing bracket or `+`/`-` left to build a new loop from. By epoch 150,000 no new life had appeared; instead the debris underwent a second runaway into a frozen crystal of `>`, `,` and `{` bytes in which nothing changes any more. One seed, one complete arc: emergence, takeover, parasitism, host extinction, parasite extinction, desert, crystal.
 
 ## Timeline
 
@@ -23,6 +23,7 @@ After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and
 | 75,520 | 0 | 86% | 10% | 8.5k | 2.5 | erosion |
 | 79,936 | 0 | 1% | 78% | 22.6k | 2.2 | the parasite lineage is scattered over dozens of decaying variants |
 | 130,000 | 0 | 0 | 100% | 15.9k | 2.0 | the desert: homogeneous debris, no `]`, `+`, `-` or `,` left in the soup |
+| 141,500 to 147,000 | 0 | 0 | 100% | 15k to 131k | 2.0 to -0.4 | the crystal: a byte-painting runaway rewrites every slot, then freezes |
 
 Shares are the fraction of the 131,072 slots holding a key of each kind, from the species snapshots every 32 epochs. "Replicators" are keys containing the loop `>]]>`; "parasites" are keys built on `..{>>{..` or `..{>{..` without a closing bracket.
 
@@ -130,6 +131,25 @@ The decisive fact is the instruction repertoire. Instruction bytes per 1000 soup
 The parasite overwrote 99 percent of the soup with copies of itself, and its genome uses only `[`, `.`, `>` and `{`. The random background that carried every instruction is gone. In a sample of 8,192 programs at 130k there is not one `]`, so no loop can close, and there is no `+` or `-`, the only instructions that turn a data byte into a different byte value. The one remaining route to a new instruction byte is a `.` copying a data byte that happens to hold an instruction value, and the data bytes are being homogenised too. The soup has lost the means to evolve.
 
 So the answer is no, and not because diversity is low in itself: the parasite stripped the soup of the building blocks. A random soup at epoch 0 is more fertile than this one at 130,000. Without mutation, which is the only process that writes uniformly random bytes, there is nothing to replenish them. Whether background mutation at the paper's rate would revive the desert is the natural follow-up experiment.
+
+## Epilogue: the crystal
+
+The desert did not stay a desert. The run was carried on to 150,000 epochs, and between 141,500 and 147,000 the soup went through a second, entirely different runaway.
+
+| Epoch | Distinct keys | Key changes per epoch | Instructions per tape | Longest common key |
+|---|---|---|---|---|
+| 141,000 | 15k | 24k | 24 | 10 |
+| 142,500 | 25k | 35k | 26 | 11 |
+| 143,750 | 89k | 58k | 30 | 11 |
+| 144,250 | 131,071 | 78k | 65 | 31 |
+| 146,000 | 131,064 | 68k | 95 | 64 |
+| 147,250 | 129,480 | 510 | 226 | 64 |
+
+Within about 3,000 epochs every slot came to hold a different key, keys grew to fill all 64 bytes, and then the activity collapsed: from 77,000 key changes per epoch to about 500, while each tape still executed over 200 instructions. The soup had frozen. At 150,000 epochs, 90 percent of all bytes are one of four instructions, `>` 40 percent, `,` 22 percent, `{` 19 percent, `]` 7 percent, none of which except `[` was present in measurable amounts in the desert. A typical program reads `>>>>>>>>>>]>>]>,>>{{>{,>>,,{>,,,>>,,>{,>{{,>,{{>{{{>>>,>{,,>>{>`.
+
+No self-replicator is involved: a screen of 2,000 random slots at 150,000 finds not one program that passes the self-replication test, and a program from this soup placed against random bytes leaves them untouched. What spread was not a program but a way of writing. The earliest long keys of the runaway, born around 143,000, look like `{..........>{{{.........{{{[{{{`: a run of `.` writes the byte under head0 into the cell under head1 again and again, `{` steps head1 along, and the next run of `.` paints it again. Such a program stamps its own first byte across its partner. Straight-line programs of this kind, executed once each and many bytes long, rewrite large parts of both tape halves on every encounter, and the bytes they spread are the instructions they are made of. The process feeds on itself until every program is a long straight line of `>`, `,` and `{` whose execution changes nothing any more, because every write copies a value onto an identical value. Every slot is unique in its exact sequence, and nothing moves. The higher-order entropy is negative here, an artefact: the byte distribution is so concentrated that Brotli at quality 2 does not even reach the order-zero bound on a 2 MB sample.
+
+So the full arc of one seed, 150,000 epochs: random soup, a replicator, a parasite that ate it, a desert of debris, and finally a crystal. Life, in the sense of self-replication, existed for about 17,000 epochs of it.
 
 ## Watch it happen in the stepper
 
