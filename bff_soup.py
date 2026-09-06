@@ -60,7 +60,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
              lineage_min_len=DEFAULT_MIN_LEN, lineage_budget_mb=DEFAULT_BUDGET_MB,
              lineage_window=None, promote_count=None, cascade_depth=None, cascade_max=None,
              stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0,
-             print_interval=100, seed_programs=None):
+             print_interval=100, seed_programs=None, archive=True):
     """Run (or resume) the simulation. Returns the final soup."""
 
     # ---- resolve run directory and starting state --------------------------
@@ -302,6 +302,15 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     print(f"\nDone: {done} epochs in {elapsed:.1f}s ({done / max(elapsed, 1e-9):.1f} epochs/sec). "
           f"Run dir: {rd.path}")
 
+    if archive and epoch >= 0:
+        try:
+            from bff_archive import build_and_save, print_summary
+            print("Building the run archive (winners, families, emergence story)...", flush=True)
+            out, size, arc = build_and_save(rd.path, verbose=False)
+            print_summary(arc)
+            print(f"Archive written to {out} ({size / 1024:.0f} KB)")
+        except Exception as e:  # noqa: BLE001 - never lose a run over the summary
+            print(f"Archive failed ({type(e).__name__}: {e}); build it later with: python bff_archive.py {rd.path}")
     return soup
 
 
@@ -347,6 +356,7 @@ def main(argv=None):
     g.add_argument("--metric-sample", type=int, default=0,
                    help="programs to compress for the metrics (0 = whole soup)")
     g.add_argument("--print-interval", type=int, default=100)
+    g.add_argument("--no-archive", action="store_true", help="do not build archive/<run>.json on exit")
     g = p.add_argument_group("stop conditions (optional, first one met wins)")
     g.add_argument("--stop-entropy", type=float, default=None, help="stop when higher-order entropy exceeds this")
     g.add_argument("--stop-share", type=float, default=None,
@@ -368,7 +378,7 @@ def main(argv=None):
         promote_count=args.promote_count, cascade_depth=args.cascade_depth, cascade_max=args.cascade_max,
         stop_entropy=args.stop_entropy, stop_share=args.stop_share,
         stop_selfreps=args.stop_selfreps, stop_after=args.stop_after,
-        print_interval=args.print_interval, seed_programs=args.seed_programs,
+        print_interval=args.print_interval, seed_programs=args.seed_programs, archive=not args.no_archive,
     )
 
 
