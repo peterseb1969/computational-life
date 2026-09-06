@@ -390,6 +390,18 @@ def near_variants(rows, query_key, max_dist):
     return np.flatnonzero(hit)
 
 
+def copy_loops(key):
+    """The innermost bracket loops of an instruction string, the copy engines a replicator is built on."""
+    return set(re.findall(r'\[[^\[\]]*\]', key))
+
+
+def same_lineage(a, b, max_dist=3):
+    """Two replicator keys are one lineage if they share an innermost loop or lie within max_dist edits (up to reversal)."""
+    if copy_loops(a) & copy_loops(b):
+        return True
+    return _near(a, b, max_dist)
+
+
 def compute_keys(soup):
     """Return (hashes uint64[n], lengths int32[n]) for a (n, 64) soup."""
     n = soup.shape[0]

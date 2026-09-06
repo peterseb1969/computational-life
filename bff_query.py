@@ -653,24 +653,19 @@ def main(argv=None):
     t0 = time.time()
 
     if a.cmd == 'culls':
-        from bff_archive import cluster_families
         ev = [c for c in run.meta.get('culls', []) if c.get('kind', 'replicator') == 'replicator']
         if not ev:
             print("no replicators were removed in this run (was it started with --cull-replicators?)"); return
         # one lineage: keys within 3 edits of each other, or sharing an innermost copy loop
         keys = [c['key'] for c in ev]
-        loops = [set(re.findall(r'\[[^\[\]]*\]', k)) for k in keys]
         parent = list(range(len(keys)))
         def find(i):
             while parent[i] != i:
                 parent[i] = parent[parent[i]]; i = parent[i]
             return i
-        for f in cluster_families(keys):
-            for i in f[1:]:
-                parent[find(i)] = find(f[0])
         for i in range(len(keys)):
             for j in range(i):
-                if loops[i] & loops[j]:
+                if core.same_lineage(keys[i], keys[j]):
                     parent[find(i)] = find(j)
         groups = {}
         for i in range(len(keys)):
