@@ -143,8 +143,18 @@ def test_hashmap_matches_dict():
     print(f"ok  hashmap capacity bounded under churn (max {max(caps)})")
 
 
+def test_mirror_families():
+    from bff_archive import cluster_families
+    a = '<[[[[[,,.[.[[}<,]],<}[,<'
+    keys = [a, a[::-1], a[:-1], '[[<,,,}]]}}]]},,,<[[', '[[<,,,}]]}}]]},,,<[[['[::-1]]
+    groups = sorted(sorted(g) for g in cluster_families(keys))
+    assert groups == [[0, 1, 2], [3, 4]], groups
+    print("ok  mirror-image variants cluster into one family")
+
+
 if __name__ == '__main__':
     import io, contextlib
+    test_mirror_families()
     test_interpreter_matches_reference()
     test_selfrep_fixtures()
     test_hashmap_matches_dict()

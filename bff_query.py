@@ -443,11 +443,17 @@ class Run:
         if depth <= 0:
             node['note'] = 'depth limit'
             return node
-        dp = edit_distance(row['key'], birth['parent_key'] or '')
-        dq = edit_distance(row['key'], birth['partner_key'] or '')
-        node['parent_distance'] = dp
-        node['partner_distance'] = dq
-        node['primary'] = 'parent' if dp <= dq else 'partner'
+        # a replicator may write its mirror image: compare against reversed keys as well
+        key = row['key']
+        dists = {}
+        for role, k in (('parent', birth['parent_key'] or ''), ('partner', birth['partner_key'] or '')):
+            direct, mirror = edit_distance(key, k), edit_distance(key, k[::-1])
+            node[f'{role}_distance'] = direct
+            node[f'{role}_mirror_distance'] = mirror
+            node[f'{role}_mirror'] = mirror < direct
+            dists[role] = min(direct, mirror)
+        node['primary'] = 'parent' if dists['parent'] <= dists['partner'] else 'partner'
+        node['primary_mirror'] = node[f"{node['primary']}_mirror"]
         for role, hh, key, tracked in (('parent', birth['parent_hash'], birth['parent_key'], birth['parent_tracked']),
                                        ('partner', birth['partner_hash'], birth['partner_key'], birth['partner_tracked'])):
             if tracked:
@@ -587,8 +593,10 @@ def render_tree(node, indent=0, role='species'):
         lines.append(f"{pad}  born epoch {b['epoch']} in slot {b['slot']} ({order} of tape), "
                      f"partner slot {b['partner']}")
         if 'primary' in node:
-            lines.append(f"{pad}  edit distance to parent {node['parent_distance']}, "
-                         f"to partner {node['partner_distance']}  -> primary ancestor: {node['primary']}")
+            d = lambda r: (f"{node[r + '_mirror_distance']} as mirror image" if node[r + '_mirror']
+                           else str(node[r + '_distance']))
+            lines.append(f"{pad}  edit distance to parent {d('parent')}, to partner {d('partner')}"
+                         f"  -> primary ancestor: {node['primary']}{' (mirror copy)' if node['primary_mirror'] else ''}")
     if node.get('note'):
         lines.append(f"{pad}  [{node['note']}]")
     for role_name in ('parent', 'partner'):

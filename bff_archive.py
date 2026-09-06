@@ -58,8 +58,13 @@ def longest_common_substring(strings):
     return ''
 
 
+def family_distance(a, b):
+    """Edit distance up to reversal: replicators often produce mirror images of themselves."""
+    return min(edit_distance(a, b), edit_distance(a, b[::-1]))
+
+
 def cluster_families(keys, max_dist=FAMILY_DISTANCE):
-    """Single-linkage clustering by edit distance. Returns list of index lists."""
+    """Single-linkage clustering by edit distance (up to reversal). Returns list of index lists."""
     n = len(keys)
     parent = list(range(n))
 
@@ -71,7 +76,7 @@ def cluster_families(keys, max_dist=FAMILY_DISTANCE):
 
     for i in range(n):
         for j in range(i + 1, n):
-            if abs(len(keys[i]) - len(keys[j])) <= max_dist and edit_distance(keys[i], keys[j]) <= max_dist:
+            if abs(len(keys[i]) - len(keys[j])) <= max_dist and family_distance(keys[i], keys[j]) <= max_dist:
                 parent[find(i)] = find(j)
     groups = {}
     for i in range(n):
@@ -91,12 +96,16 @@ def functional_profile(program, max_steps, trials=8, generations=8, seed=0):
     rng = np.random.default_rng(seed)
     ops_list = []
     faithful = []
+    mirror = 0
     for _ in range(trials):
         tape = np.concatenate([program, rng.integers(0, 256, core.TAPE_SIZE, dtype=np.uint8)])
         ops_list.append(int(core.evaluate(tape, max_steps)))
         gens = 0
         for _ in range(generations):
-            if core.program_key(tape[core.TAPE_SIZE:]) != key:
+            child = core.program_key(tape[core.TAPE_SIZE:])
+            if child == key[::-1] and key != key[::-1]:
+                mirror += 1                       # a faithful copy may be the mirror image
+            elif child != key:
                 break
             gens += 1
             tape = np.concatenate([tape[core.TAPE_SIZE:], rng.integers(0, 256, core.TAPE_SIZE, dtype=np.uint8)])
@@ -113,6 +122,7 @@ def functional_profile(program, max_steps, trials=8, generations=8, seed=0):
         'ops_per_execution': float(np.mean(ops_list)),
         'faithful_generations_mean': float(np.mean(faithful)),
         'faithful_generations_min': int(min(faithful)),
+        'copies_as': 'mirror' if mirror > sum(faithful) / 2 else 'direct',
     }
 
 
@@ -212,11 +222,15 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
     for fi, members in enumerate(cluster_families(keys)):
         members = sorted(members, key=lambda i: -end_winners[i]['count'])
         rep = end_winners[members[0]]
+        # orient every member like the representative (reverse mirror-image members) before finding the core
+        oriented = [keys[i] if edit_distance(keys[i], rep['key']) <= edit_distance(keys[i][::-1], rep['key'])
+                    else keys[i][::-1] for i in members]
         fam = {
             'id': fi,
-            'core': longest_common_substring([keys[i] for i in members]) if len(members) > 1 else rep['key'],
+            'core': longest_common_substring(oriented) if len(members) > 1 else rep['key'],
             'representative': rep['key'],
             'members': [keys[i] for i in members],
+            'mirror_members': sum(1 for i, o in zip(members, oriented) if o != keys[i]),
             'share': float(sum(end_winners[i]['share'] for i in members)),
             'selfrep_score': rep['selfrep_score'],
             'profile': functional_profile(rep['program'], run.max_steps),
@@ -293,9 +307,11 @@ def print_summary(a):
     print(f"  families at the end ({len(a['families'])}):")
     for f in a['families'][:8]:
         p = f['profile']
-        print(f"    {100 * f['share']:5.1f}%  selfrep {f['selfrep_score']:2d}  {len(f['members']):2d} variants  "
+        print(f"    {100 * f['share']:5.1f}%  selfrep {f['selfrep_score']:2d}  {len(f['members']):2d} variants"
+              f"{' (' + str(f['mirror_members']) + ' mirrored)' if f.get('mirror_members') else ''}  "
               f"core {f['core'] or '(empty)'}   (rep {f['representative'] or '(empty)'}, born {f['lineage'].get('first_epoch')}, "
-              f"{p['ops_per_execution']:.0f} ops, faithful {p['faithful_generations_mean']:.1f} gens)")
+              f"{p['ops_per_execution']:.0f} ops, faithful {p['faithful_generations_mean']:.1f} gens"
+              f"{', copies as mirror image' if p.get('copies_as') == 'mirror' else ''})")
 
 
 def main(argv=None):

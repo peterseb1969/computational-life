@@ -243,7 +243,10 @@ function renderNode(n, role, primary) {
     facts += ` · <b>present in the initial soup</b> (slot ${b.slot})`;
   } else if (b.epoch !== undefined) {
     facts += ` · born <b>epoch ${fmt(b.epoch)}</b> in slot ${b.slot} (${b.slot_position === 0 ? 'first' : 'second'} half), partner slot ${b.partner}`;
-    if (n.primary) facts += ` · distance to parent ${n.parent_distance}, to partner ${n.partner_distance}`;
+    if (n.primary) {
+      const d = (r) => (n[r + '_mirror'] ? `${n[r + '_mirror_distance']} as mirror image` : `${n[r + '_distance']}`);
+      facts += ` · distance to parent ${d('parent')}, to partner ${d('partner')}` + (n.primary_mirror ? ' · <b>mirror copy</b>' : '');
+    }
   }
   if (n.note && !b.initial) facts += ` · <i>${esc(n.note)}</i>`;
   const actions = `<div class="actions">

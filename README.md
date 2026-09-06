@@ -216,7 +216,7 @@ python3 bff_query.py tape    runs/42 --epoch 39301 --slot 12345         # exact 
 
 Add `--json` before the subcommand for machine-readable output. Replaying a tape re-executes the epochs since the nearest checkpoint (up to 256), which takes seconds on a 131k soup and competes with a running simulation for CPU.
 
-**Lineage semantics.** A species' *birth* is the first execution that produced its key. The *parent* is what the slot held before that execution and the *partner* is the other half of the tape; whichever is closer by edit distance is marked primary. Ancestors older than the recording window when the species was promoted are not recorded, but their text is stored in the child's birth row, so a chain never ends blind.
+**Lineage semantics.** A species' *birth* is the first execution that produced its key. The *parent* is what the slot held before that execution and the *partner* is the other half of the tape; whichever is closer by edit distance is marked primary. Distances are also computed against the reversed keys, because a replicator often writes its mirror image into the partner; such births are labelled mirror copies, and the archive's families merge a key with its reverse. Ancestors older than the recording window when the species was promoted are not recorded, but their text is stored in the child's birth row, so a chain never ends blind.
 
 ## Running with cubff (C++ Implementation)
 
