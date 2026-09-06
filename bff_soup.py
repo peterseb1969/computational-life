@@ -146,11 +146,19 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             cps = rd.checkpoints()
             if not cps:
                 sys.exit(f"No checkpoints in {resume_path}")
-            ckpt = cps[-1][1]
+            # the latest checkpoint may be a stub if the disk filled while it was written: fall back
+            for e, ckpt in reversed(cps):
+                try:
+                    soup, ck = core.load_checkpoint(ckpt)
+                    break
+                except core.CheckpointError as err:
+                    print(f"Skipping unreadable checkpoint {ckpt}: {err}")
+            else:
+                sys.exit(f"No readable checkpoint in {resume_path}")
         else:
             ckpt = resume_path
             rd = RunDir(run_dir_path or os.path.dirname(os.path.dirname(os.path.abspath(ckpt))))
-        soup, ck = core.load_checkpoint(ckpt)
+            soup, ck = core.load_checkpoint(ckpt)
         if ck.get('format', 1) == 1:
             sys.exit("Cannot resume from a v1 checkpoint: it has no seed/pairing information.")
         if ck['epoch'] == 0:

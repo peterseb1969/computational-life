@@ -13,6 +13,7 @@ Requires: numpy, numba (brotli optional but recommended)
 """
 
 import json
+import os
 import numpy as np
 from numba import njit, prange  # noqa: F401
 
@@ -21,6 +22,10 @@ COMBINED_SIZE = 2 * TAPE_SIZE
 DEFAULT_MAX_STEPS = 32768        # step budget per tape evaluation (paper/cubff use 8192)
 SELFREP_THRESHOLD = 5            # cubff kSelfrepThreshold
 CHECKPOINT_MAGIC_V1 = b'BFFS'
+
+
+class CheckpointError(ValueError):
+    """A checkpoint file is unreadable (truncated or not a checkpoint)."""
 CHECKPOINT_MAGIC_V2 = b'BFF2'
 
 # ---------------------------------------------------------------------------
@@ -615,11 +620,15 @@ def save_checkpoint(soup, epoch, path, meta=None):
     if meta:
         header.update(meta)
     hjson = json.dumps(header).encode('utf-8')
-    with open(path, 'wb') as f:
+    tmp = path + '.tmp'                     # write, then rename: a full disk or a crash leaves no stub behind
+    with open(tmp, 'wb') as f:
         f.write(CHECKPOINT_MAGIC_V2)
         f.write(len(hjson).to_bytes(4, 'little'))
         f.write(hjson)
         f.write(soup.tobytes())
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 
 def load_checkpoint(path):
@@ -630,7 +639,11 @@ def load_checkpoint(path):
             hlen = int.from_bytes(f.read(4), 'little')
             meta = json.loads(f.read(hlen).decode('utf-8'))
             n, t = meta['num_programs'], meta['tape_size']
-            soup = np.frombuffer(f.read(n * t), dtype=np.uint8).reshape(n, t).copy()
+            raw = f.read(n * t)
+            if len(raw) != n * t:
+                raise CheckpointError(f"{path} is truncated ({len(raw)} of {n * t} soup bytes); "
+                                      "the disk was probably full when it was written")
+            soup = np.frombuffer(raw, dtype=np.uint8).reshape(n, t).copy()
             meta.setdefault('format', 2)
             return soup, meta
         if magic == CHECKPOINT_MAGIC_V1:
@@ -640,4 +653,4 @@ def load_checkpoint(path):
             f.read(8)
             soup = np.frombuffer(f.read(n * t), dtype=np.uint8).reshape(n, t).copy()
             return soup, {'num_programs': n, 'tape_size': t, 'epoch': epoch, 'format': 1}
-    raise ValueError(f"Not a BFF checkpoint (magic {magic!r}): {path}")
+    raise CheckpointError(f"Not a BFF checkpoint (magic {magic!r}): {path}")

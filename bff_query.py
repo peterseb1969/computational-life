@@ -455,9 +455,13 @@ class Run:
         cps = [(e, p) for e, p in self.checkpoints() if e <= epoch]
         if not cps:
             raise ValueError(f"no checkpoint at or before epoch {epoch}")
-        e, p = cps[-1]
-        soup, _ = core.load_checkpoint(p)
-        return e, soup
+        for e, p in reversed(cps):              # skip a truncated file (disk full while writing)
+            try:
+                soup, _ = core.load_checkpoint(p)
+                return e, soup
+            except core.CheckpointError:
+                continue
+        raise ValueError(f"no readable checkpoint at or before epoch {epoch}")
 
     def soup_at(self, epoch):
         """
