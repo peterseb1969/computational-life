@@ -37,6 +37,9 @@ import bff_core as core
 from bff_core import TAPE_SIZE, DEFAULT_MAX_STEPS, SELFREP_THRESHOLD
 from bff_lineage import (RunDir, LineageWriter, truncate_log, DEFAULT_MIN_LEN, DEFAULT_BUDGET_MB,
                          DEFAULT_WINDOW, DEFAULT_PROMOTE_COUNT, DEFAULT_CASCADE_DEPTH, DEFAULT_CASCADE_MAX)
+# imported up front so that a code update during a long run cannot leave the exit-time archive
+# with a mix of old and new modules (bff_archive pulls in bff_query and bff_core)
+from bff_archive import build_and_save, print_summary  # noqa: E402
 
 LOG_COLUMNS = ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb',
                'ops_per_pair', 'unique_species', 'top_share', 'top_key_len',
@@ -417,7 +420,6 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
 
     if archive and epoch >= 0:
         try:
-            from bff_archive import build_and_save, print_summary
             print("Building the run archive (winners, families, emergence story)...", flush=True)
             out, size, arc = build_and_save(rd.path, archive_dir=archive_dir, verbose=False)
             print_summary(arc)
