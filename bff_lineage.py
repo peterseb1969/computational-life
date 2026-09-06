@@ -446,7 +446,9 @@ class LineageWriter:
 # Read side helpers (used by the analysis tools)
 # ---------------------------------------------------------------------------
 def open_db(run_dir):
-    db = sqlite3.connect(run_dir.db_path if isinstance(run_dir, RunDir) else run_dir)
+    # check_same_thread=False: the web server answers each request from its own thread and
+    # serialises all queries with a lock, so one connection per run is safe to share
+    db = sqlite3.connect(run_dir.db_path if isinstance(run_dir, RunDir) else run_dir, check_same_thread=False)
     db.row_factory = sqlite3.Row
     return db
 
