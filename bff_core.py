@@ -52,10 +52,12 @@ EMPTY_KEY_HASH = int(FNV_OFFSET)
 # Interpreter
 # ---------------------------------------------------------------------------
 @njit(cache=True)
-def evaluate(tape, max_steps):
+def evaluate(tape, max_steps, heads_init=False):
     """
     Execute BFF on a 128-byte tape in place. Both heads and the program
-    counter start at 0; heads wrap modulo 128. Execution stops when the
+    counter start at 0; heads wrap modulo 128. With heads_init (the paper's
+    'bff' variant, as opposed to 'bff_noheads'), the first two tape bytes set
+    the initial positions of head0 and head1 and execution starts at byte 2. Execution stops when the
     program counter leaves the tape, a bracket is unmatched, the step budget
     is spent, or the program is provably stuck: once the tape has stopped
     changing, the machine state is just (pc, head0, head1), and if that state
@@ -67,6 +69,10 @@ def evaluate(tape, max_steps):
     head0 = 0
     head1 = 0
     pc = 0
+    if heads_init:
+        head0 = tape[0] & (COMBINED_SIZE - 1)
+        head1 = tape[1] & (COMBINED_SIZE - 1)
+        pc = 2
     ops = 0
     # cycle detection over (pc, head0, head1) since the last change of the tape
     tortoise = -1
@@ -173,7 +179,7 @@ def splitmix64(x):
 
 
 @njit(parallel=True, cache=True)
-def run_epoch(soup, perm, max_steps, mutation_prob, epoch_seed, ops_out):
+def run_epoch(soup, perm, max_steps, mutation_prob, epoch_seed, ops_out, heads_init=False):
     """
     One epoch: programs perm[2i] and perm[2i+1] form tape i, are optionally
     mutated, executed, and written back to their own slots. The soup is
@@ -200,7 +206,7 @@ def run_epoch(soup, perm, max_steps, mutation_prob, epoch_seed, ops_out):
                 if ((r >> np.uint64(8)) & mask30) < mprob:
                     tape[j] = np.uint8(r & np.uint64(0xFF))
 
-        ops_out[i] = evaluate(tape, max_steps)
+        ops_out[i] = evaluate(tape, max_steps, heads_init)
 
         for j in range(TAPE_SIZE):
             soup[a, j] = tape[j]
@@ -324,7 +330,7 @@ def to_unsigned(h):
 # Self-replication test (port of cubff CheckSelfRep)
 # ---------------------------------------------------------------------------
 @njit(parallel=True, cache=True)
-def selfrep_scores(programs, seed, max_steps, out):
+def selfrep_scores(programs, seed, max_steps, out, heads_init=False):
     """
     For each program: 13 trials, each pairing the program with a fresh random
     64-byte partner, running one epoch, then 4 more generations in which the
@@ -349,12 +355,12 @@ def selfrep_scores(programs, seed, max_steps, out):
             for j in range(TAPE_SIZE):
                 tape[j] = programs[idx, j]
                 tape[j + TAPE_SIZE] = noise[j]
-            evaluate(tape, max_steps)
+            evaluate(tape, max_steps, heads_init)
             for g in range(NGEN):
                 for j in range(TAPE_SIZE):
                     tape[j] = tape[j + TAPE_SIZE]
                     tape[j + TAPE_SIZE] = noise[j]
-                evaluate(tape, max_steps)
+                evaluate(tape, max_steps, heads_init)
         res0 = 0
         res1 = 0
         for i in range(COMBINED_SIZE):
@@ -374,11 +380,11 @@ def selfrep_scores(programs, seed, max_steps, out):
         out[idx] = res0 if res0 < res1 else res1
 
 
-def selfrep_test(programs, seed=0, max_steps=DEFAULT_MAX_STEPS):
+def selfrep_test(programs, seed=0, max_steps=DEFAULT_MAX_STEPS, heads_init=False):
     """Self-replication scores (int32[K]) for a (K, 64) array of programs."""
     programs = np.ascontiguousarray(programs, dtype=np.uint8)
     out = np.empty(programs.shape[0], dtype=np.int32)
-    selfrep_scores(programs, seed, max_steps, out)
+    selfrep_scores(programs, seed, max_steps, out, heads_init)
     return out
 
 

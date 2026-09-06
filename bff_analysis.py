@@ -26,7 +26,7 @@ def extract_programs(soup):
     return {core.program_key(soup[i]): int(c) for i, c in zip(first.tolist(), counts.tolist())}
 
 
-def top_programs(soup, top_n=10, selfrep=True, max_steps=core.DEFAULT_MAX_STEPS):
+def top_programs(soup, top_n=10, selfrep=True, max_steps=core.DEFAULT_MAX_STEPS, heads=False):
     """
     Returns a list of dicts (key, count, share, length, selfrep_score) for the
     top_n most common keys. selfrep_score is None when the test is skipped.
@@ -35,7 +35,7 @@ def top_programs(soup, top_n=10, selfrep=True, max_steps=core.DEFAULT_MAX_STEPS)
     uniq, first, counts = np.unique(hashes, return_index=True, return_counts=True)
     order = np.argsort(-counts, kind='stable')[:top_n]
     reps = soup[first[order]]
-    scores = core.selfrep_test(reps, seed=0, max_steps=max_steps) if selfrep else None
+    scores = core.selfrep_test(reps, seed=0, max_steps=max_steps, heads_init=heads) if selfrep else None
     n = soup.shape[0]
     out = []
     for k, i in enumerate(order.tolist()):
@@ -49,8 +49,8 @@ def top_programs(soup, top_n=10, selfrep=True, max_steps=core.DEFAULT_MAX_STEPS)
     return out
 
 
-def print_top_programs(soup, top_n=10, selfrep=True, max_steps=core.DEFAULT_MAX_STEPS):
-    rows = top_programs(soup, top_n, selfrep, max_steps)
+def print_top_programs(soup, top_n=10, selfrep=True, max_steps=core.DEFAULT_MAX_STEPS, heads=False):
+    rows = top_programs(soup, top_n, selfrep, max_steps, heads)
     print(f"\nTop {top_n} programs" + (" (SelfRep = stable bytes over 13 trials; >=5 replicates)" if selfrep else "") + ":")
     print(f"{'Count':>7} {'Share':>7} {'Len':>4} {'SelfRep':>8}  Key")
     for r in rows:
@@ -78,7 +78,7 @@ def analyze_checkpoint(path, top_n=10, selfrep=True):
     metrics = core.complexity_metrics(soup)
     print(f"Higher-order entropy: {metrics['higher_entropy']:.3f}   bits/byte: {metrics['bpb']:.3f}"
           f"   ({core.COMPRESSOR})")
-    print_top_programs(soup, top_n, selfrep, meta.get('max_steps', core.DEFAULT_MAX_STEPS))
+    print_top_programs(soup, top_n, selfrep, meta.get('max_steps', core.DEFAULT_MAX_STEPS), bool(meta.get('heads', False)))
 
 
 # Backwards-compatible aliases

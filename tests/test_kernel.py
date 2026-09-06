@@ -20,10 +20,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, '..')
 
 
-def reference_evaluate(tape, max_steps):
+def reference_evaluate(tape, max_steps, heads=False):
     """Original semantics: runs until halt or budget, no cycle detection."""
     head0 = head1 = pc = 0
     n = len(tape)
+    if heads:
+        head0, head1, pc = tape[0] & (n - 1), tape[1] & (n - 1), 2
     for _ in range(max_steps):
         if pc < 0 or pc >= n:
             break
@@ -72,13 +74,14 @@ def test_interpreter_matches_reference():
     for r in reps:                                          # replicators against random / each other
         cases.append(np.concatenate([r, rng.integers(0, 256, 64, dtype=np.uint8)]))
         cases.append(np.concatenate([r, reps[rng.integers(len(reps))]]))
-    for budget in (8192, 32768):
-        for i, t in enumerate(cases):
-            a = t.copy(); b = t.copy()
-            core.evaluate(a, budget)
-            reference_evaluate(b, budget)
-            assert np.array_equal(a, b), f"tape {i} differs from reference at budget {budget}"
-    print(f"ok  interpreter == reference on {len(cases)} tapes x 2 budgets")
+    for heads in (False, True):
+        for budget in (8192, 32768):
+            for i, t in enumerate(cases):
+                a = t.copy(); b = t.copy()
+                core.evaluate(a, budget, heads)
+                reference_evaluate(b, budget, heads)
+                assert np.array_equal(a, b), f"tape {i} differs from reference at budget {budget}, heads={heads}"
+    print(f"ok  interpreter == reference on {len(cases)} tapes x 2 budgets x 2 head modes")
 
 
 def test_selfrep_fixtures():

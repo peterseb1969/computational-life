@@ -21,16 +21,17 @@ A soup of random 64-byte programs is repeatedly paired up. Each pair is executed
 python3 -m venv .venv && source .venv/bin/activate      # Python 3.11+
 pip install -r requirements.txt                          # numpy, numba, brotli
 
-# Run at the paper's scale with the paper's step budget. On an M4 Pro this runs at
-# 60+ epochs/s before replicators appear and 20-40 epochs/s during heavy churn.
-python3 bff_soup.py --num 131072 --epochs 60000 --seed 44 --max-steps 8192 --metric-sample 32768
+# A statistics run: 131072 programs, the paper's step budget, sampled metrics, stops 2048 epochs
+# after replicators hold half the soup, capped at 100k epochs. The run is named <host>-<date>-<letter>.
+# On an M4 Pro this runs at 60+ epochs/s before replicators appear and slows during takeover.
+python3 bff_soup.py --stats
 
 # In other terminals: terminal monitor, or the web viewer on http://localhost:8765/
-python3 visualize_bff.py runs/44
+python3 visualize_bff.py runs/<name>
 python3 bff_web.py
 
-# When the run ends (or is stopped with Ctrl-C) its archive is written to archive/44.json
-python3 bff_compare.py --families
+# When the run ends (or is stopped with Ctrl-C) its archive is written to archive/<host>-<name>.json
+python3 bff_compare.py --survival
 ```
 
 Transitions are a matter of luck and patience: the paper reports about 40% of 131k-program runs transitioning within 16k epochs. Runs 42 and 43 of this fork ran 43k and 60k epochs without one; run 44 produced a replicator pair at epoch 1084.
@@ -61,7 +62,7 @@ BFF replaces Brainfuck's I/O with copying between two heads on a shared tape:
 
 ### Execution semantics
 
-Both heads and the program counter start at 0; heads wrap modulo 128; non-instruction bytes are skipped. A tape stops when the program counter leaves the tape, a bracket is unmatched, or the step budget (`--max-steps`; the paper uses 8192) is spent.
+Both heads and the program counter start at 0; heads wrap modulo 128; non-instruction bytes are skipped. This is cubff's `bff_noheads`. With `--heads` (cubff's `bff`) the first two tape bytes set the initial head positions and execution starts at byte 2, which lets a program carry its own head settings and breaks the symmetry between the two tape positions (see below). A tape stops when the program counter leaves the tape, a bracket is unmatched, or the step budget (`--max-steps`; the paper uses 8192) is spent.
 
 The interpreter also stops a program that is **provably stuck**: once the tape has stopped changing, the machine state is just (program counter, head0, head1), and if that state recurs the program loops forever without writing again, so the tape is already final. This is detected with Brent's cycle algorithm and yields exactly the same tapes as running out the budget (`tests/test_kernel.py` checks it against a plain reference interpreter), about 9x faster on a mature soup where most tapes spin. The only visible effect is that "instructions per tape" counts useful work rather than spinning.
 
@@ -81,6 +82,8 @@ A replicator that emerges often has a palindrome-like shape, for example
 ```
 
 the replicator copies itself backwards into the other program's space, and the near-mirror structure keeps a valid copy loop whichever way the tape is cut.
+
+**Position symmetry and why replicators can fade.** With heads starting at 0, a program cannot tell which half of the tape it occupies. A copy loop that writes the program over its partner when the program runs first will, when the partner's code falls through into it, write the partner over the program. Replays of a run whose replicator rose to 31% and then declined showed births per instance equal to deaths per instance to three decimals at every stage: the population is a random walk with zero drift, and can drift out of existence. Takeovers happen when the balance tips by a few percent. The `--heads` variant is the natural test of this explanation.
 
 Run 44 of this fork produced a variant of this mechanism: a 24-instruction program, `<[[[[[,,.[.[[}<,]],<}[,<`, that writes its **mirror image** into the partner whenever it is the first half of the tape, and never copies as the second half. Its population therefore alternates between the key and its reverse, in lockstep, and hovered around 10% of the soup instead of taking over. The tooling recognises mirror copies in lineage traces and merges mirror pairs into one family.
 
@@ -120,9 +123,13 @@ python3 bff_soup.py --resume runs/44/checkpoints/0000010240.dat     # a specific
 
 ```
 simulation:
+  --stats               Preset: 131072 programs, 8192 steps, sampled metrics, --stop-selfreps 65536
+                        --stop-after 2048, cap 100000 epochs (explicit flags win)
   --num N               Number of programs, even (default: 1024)
   --epochs N            Run until this epoch number (default: 10000)
-  --seed S              Random seed: a number, or any name such as mini-15 (hashed; also the run's name)
+  --seed S              Random seed: a number, or any name (hashed; also the run's name).
+                        Default: <host>-<date>-<letter>
+  --heads               The paper's 'bff' variant: first two tape bytes set the heads, execution starts at byte 2
   --mutation-prob P     Per-byte mutation probability per epoch (default: 0; paper: 0.000244)
   --max-steps N         Step budget per tape execution (default: 32768; paper: 8192)
   --seed-programs F.npy[:N]  Plant N copies of the programs in F (n x 64 uint8) into random slots
@@ -219,7 +226,7 @@ python3 bff_compare.py --families      # leading family cores across runs, recur
 python3 bff_compare.py --csv runs.csv  # one row per run
 ```
 
-**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192` or `128k-8192-mut`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of a results repository, and commit the archive when a run ends. For transition statistics let runs stop themselves shortly after takeover: `--stop-selfreps 65536 --stop-after 2048 --epochs 60000`. A run that reaches the epoch cap without a transition is a censored observation, and the survival table treats it as such.
+**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of a results repository, and commit the archive when a run ends. For transition statistics let runs stop themselves shortly after takeover: `--stop-selfreps 65536 --stop-after 2048 --epochs 60000`. A run that reaches the epoch cap without a transition is a censored observation, and the survival table treats it as such.
 
 ## Metrics
 

@@ -163,6 +163,7 @@ def api(path, q):
         t['before'] = t['before'].tolist()
         t['after'] = t['after'].tolist()
         t['max_steps'] = run.max_steps
+        t['heads'] = run.heads
         return t
 
     if what == 'program':
@@ -175,11 +176,11 @@ def api(path, q):
         if hit.size == 0:
             return None
         return {'epoch': ck_epoch, 'slot': int(hit[0]), 'program': soup[hit[0]].tolist(),
-                'count': int(hit.size), 'max_steps': run.max_steps}
+                'count': int(hit.size), 'max_steps': run.max_steps, 'heads': run.heads}
 
     if what == 'selfrep':
         progs = np.array(json.loads(g('programs')), dtype=np.uint8).reshape(-1, core.TAPE_SIZE)
-        scores = core.selfrep_test(progs, seed=gi('seed', 0), max_steps=gi('max_steps', run.max_steps))
+        scores = core.selfrep_test(progs, seed=gi('seed', 0), max_steps=gi('max_steps', run.max_steps), heads_init=run.heads)
         return {'scores': scores.tolist(), 'threshold': core.SELFREP_THRESHOLD}
 
     raise KeyError(path)

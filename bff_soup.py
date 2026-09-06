@@ -62,10 +62,21 @@ def host_info():
             'python': platform.python_version()}
 
 
-def protocol_name(num_programs, max_steps, mutation_prob):
+def protocol_name(num_programs, max_steps, mutation_prob, heads=False):
     """Canonical label of the experimental setup, so runs can be grouped for statistics."""
     size = f"{num_programs // 1024}k" if num_programs % 1024 == 0 else str(num_programs)
-    return f"{size}-{max_steps}" + ("-mut" if mutation_prob > 0 else "")
+    return f"{size}-{max_steps}" + ("-mut" if mutation_prob > 0 else "") + ("-heads" if heads else "")
+
+
+def default_seed_name(runs_root='runs'):
+    """<host>-<date>-<letter>: the first letter whose run directory does not exist yet."""
+    stem = f"{host_name()}-{datetime.now().strftime('%Y%m%d')}"
+    for i in range(26 * 27):
+        suffix = (chr(ord('a') + i // 26 - 1) if i >= 26 else '') + chr(ord('a') + i % 26)
+        name = f"{stem}-{suffix}"
+        if not os.path.exists(os.path.join(runs_root, name)):
+            return name
+    raise RuntimeError("too many runs today")
 
 
 def _warmup():
@@ -84,7 +95,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
              lineage_min_len=DEFAULT_MIN_LEN, lineage_budget_mb=DEFAULT_BUDGET_MB,
              lineage_window=None, promote_count=None, cascade_depth=None, cascade_max=None,
              stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0,
-             print_interval=100, seed_programs=None, archive=True, archive_dir='archive', protocol=None):
+             print_interval=100, seed_programs=None, archive=True, archive_dir='archive', protocol=None,
+             heads=False):
     """Run (or resume) the simulation. Returns the final soup."""
 
     # ---- resolve run directory and starting state --------------------------
@@ -107,6 +119,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         seed = ck['seed']
         mutation_prob = ck.get('mutation_prob', 0.0)
         max_steps = ck.get('max_steps', DEFAULT_MAX_STEPS)
+        heads = bool(ck.get('heads', False))
         start_epoch = ck['epoch'] + 1
         meta = rd.read_meta() if rd.exists() else {}
         seed_label = meta.get('seed_label', str(seed))
@@ -156,7 +169,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
 
     meta.update({
         'num_programs': num_programs, 'tape_size': TAPE_SIZE, 'seed': seed, 'seed_label': seed_label,
-        'mutation_prob': mutation_prob, 'max_steps': max_steps,
+        'mutation_prob': mutation_prob, 'max_steps': max_steps, 'heads': heads,
         'checkpoint_interval': checkpoint_interval, 'species_interval': species_interval,
         'selfrep_interval': selfrep_interval, 'selfrep_top': selfrep_top,
         'metric_interval': metric_interval, 'metric_sample': metric_sample,
@@ -167,11 +180,11 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         'stop': {'entropy': stop_entropy, 'share': stop_share, 'selfreps': stop_selfreps,
                  'after': stop_after},
         'log_columns': LOG_COLUMNS,
-        'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob),
+        'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob, heads),
         'host': host_info(),
     })
     rd.write_meta(meta)
-    ckpt_meta = {'seed': seed, 'mutation_prob': mutation_prob, 'max_steps': max_steps}
+    ckpt_meta = {'seed': seed, 'mutation_prob': mutation_prob, 'max_steps': max_steps, 'heads': heads}
     mutation_int = int(round(mutation_prob * (1 << 30)))
 
     # ---- lineage + log ------------------------------------------------------
@@ -196,7 +209,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
 
     # ---- main loop ----------------------------------------------------------
     print(f"BFF Primordial Soup: {num_programs} programs, seed {seed_label}{'' if seed_label == str(seed) else f' ({seed})'}, "
-          f"mutation {mutation_prob:g}, max_steps {max_steps}, run dir {rd.path}")
+          f"mutation {mutation_prob:g}, max_steps {max_steps}{', heads from tape' if heads else ''}, run dir {rd.path}")
     print(f"{'Epoch':>8} {'Entropy':>8} {'bpb':>6} {'Ops/Pair':>9} {'Species':>8} {'Top%':>6} "
           f"{'SelfRep':>8} {'ep/s':>6}")
     print("-" * 70)
@@ -241,7 +254,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             # -- execute one epoch -------------------------------------------
             perm = core.epoch_permutation(seed, epoch, num_programs)
             np.copyto(prev_soup, soup)
-            core.run_epoch(soup, perm, max_steps, mutation_int, epoch, ops)
+            core.run_epoch(soup, perm, max_steps, mutation_int, epoch, ops, heads)
 
             # -- keys, changes, births ---------------------------------------
             if metric_interval and epoch % metric_interval == 0:
@@ -271,7 +284,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             if selfrep_interval and epoch % selfrep_interval == 0:
                 order = np.argsort(-counts, kind='stable')[:selfrep_top]
                 reps = soup[first_idx[order]]
-                scores = core.selfrep_test(reps, seed=epoch, max_steps=max_steps)
+                scores = core.selfrep_test(reps, seed=epoch, max_steps=max_steps, heads_init=heads)
                 lineage.record_selfrep(epoch, uniq[order], scores, counts[order])
                 selfrep_slots = int(counts[order][scores >= SELFREP_THRESHOLD].sum())
 
@@ -353,14 +366,20 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="BFF Primordial Soup (Numba)",
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     g = p.add_argument_group("simulation")
-    g.add_argument("--num", type=int, default=1024, help="number of programs (even)")
-    g.add_argument("--epochs", type=int, default=10000, help="run until this epoch number")
-    g.add_argument("--seed", type=str, default="42",
-                   help="random seed: a number, or any name such as mini-15 (hashed to an integer; also the run's name)")
+    g.add_argument("--num", type=int, default=None, help="number of programs, even (default 1024; 131072 with --stats)")
+    g.add_argument("--epochs", type=int, default=None, help="run until this epoch number (default 10000; 100000 with --stats)")
+    g.add_argument("--seed", type=str, default=None,
+                   help="random seed: a number, or any name (hashed to an integer; also the run's name). "
+                        "Default: <host>-<date>-<letter>")
+    g.add_argument("--stats", action="store_true",
+                   help="statistics preset: 131072 programs, 8192 steps, sampled metrics, stop 2048 epochs after "
+                        "replicators hold half the soup, cap 100000 epochs (explicit flags win)")
+    g.add_argument("--heads", action="store_true",
+                   help="the paper's 'bff' variant: the first two tape bytes set the head positions, execution starts at byte 2")
     g.add_argument("--mutation-prob", type=float, default=0.0,
                    help="per-byte mutation probability per epoch (paper default 1/4096 = 0.000244)")
-    g.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS,
-                   help="step budget per tape execution (paper/cubff: 8192)")
+    g.add_argument("--max-steps", type=int, default=None,
+                   help=f"step budget per tape execution (default {DEFAULT_MAX_STEPS}; 8192 with --stats, as in the paper)")
     g.add_argument("--seed-programs", type=str, default=None, metavar="FILE.npy[:COUNT]",
                    help="plant COUNT copies of the programs in FILE (n x 64 uint8) into random slots")
     g = p.add_argument_group("output")
@@ -389,8 +408,8 @@ def main(argv=None):
     g.add_argument("--cascade-depth", type=int, default=None,
                    help=f"generations of pending ancestors recorded along with a promoted species (default {DEFAULT_CASCADE_DEPTH}; may be changed on resume)")
     g.add_argument("--metric-interval", type=int, default=1, help="epochs between compression metrics")
-    g.add_argument("--metric-sample", type=int, default=0,
-                   help="programs to compress for the metrics (0 = whole soup)")
+    g.add_argument("--metric-sample", type=int, default=None,
+                   help="programs to compress for the metrics (default 0 = whole soup; 32768 with --stats)")
     g.add_argument("--print-interval", type=int, default=100)
     g.add_argument("--no-archive", action="store_true", help="do not build the run archive on exit")
     g.add_argument("--archive-dir", type=str, default=os.environ.get("BFF_ARCHIVE_DIR", "archive"),
@@ -402,10 +421,21 @@ def main(argv=None):
     g.add_argument("--stop-share", type=float, default=None,
                    help="stop when one species exceeds this percentage of the soup")
     g.add_argument("--stop-selfreps", type=int, default=None,
-                   help="stop when at least this many slots hold a self-replicator")
-    g.add_argument("--stop-after", type=int, default=0,
-                   help="keep running this many epochs after a stop condition fires")
+                   help="stop when at least this many slots hold a self-replicator (65536 with --stats)")
+    g.add_argument("--stop-after", type=int, default=None,
+                   help="keep running this many epochs after a stop condition fires (2048 with --stats)")
     args = p.parse_args(argv)
+
+    # defaults, with the --stats preset filling in what was not given explicitly
+    preset = ({'num': 131072, 'epochs': 100000, 'max_steps': 8192, 'metric_sample': 32768,
+               'stop_selfreps': 65536, 'stop_after': 2048} if args.stats else {})
+    base = {'num': 1024, 'epochs': 10000, 'max_steps': DEFAULT_MAX_STEPS, 'metric_sample': 0,
+            'stop_selfreps': None, 'stop_after': 0}
+    for k, v in base.items():
+        if getattr(args, k) is None:
+            setattr(args, k, preset.get(k, v))
+    if args.seed is None and not args.resume:
+        args.seed = default_seed_name(os.path.dirname(args.run_dir) if args.run_dir else 'runs')
 
     run_soup(
         num_programs=args.num, max_epochs=args.epochs, seed=args.seed,
@@ -419,7 +449,7 @@ def main(argv=None):
         stop_entropy=args.stop_entropy, stop_share=args.stop_share,
         stop_selfreps=args.stop_selfreps, stop_after=args.stop_after,
         print_interval=args.print_interval, seed_programs=args.seed_programs, archive=not args.no_archive,
-        archive_dir=args.archive_dir, protocol=args.protocol,
+        archive_dir=args.archive_dir, protocol=args.protocol, heads=args.heads,
     )
 
 

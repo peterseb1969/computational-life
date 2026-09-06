@@ -265,8 +265,9 @@ const CMD_CHARS = { 60: '<', 62: '>', 123: '{', 125: '}', 43: '+', 45: '-', 46: 
 const keyOf = (bytes) => Array.from(bytes).filter((b) => CMD_CHARS[b]).map((b) => CMD_CHARS[b]).join('');
 
 class BFF {
-  constructor(tape, maxSteps) { this.initial = Uint8Array.from(tape); this.max = maxSteps; this.reset(); }
-  reset() { this.tape = Uint8Array.from(this.initial); this.pc = 0; this.h0 = 0; this.h1 = 0; this.ops = 0; this.steps = 0; this.halted = null; this.lastWrite = -1; this.tortoise = -1; this.power = 1; this.lam = 0; }
+  constructor(tape, maxSteps, heads = false) { this.initial = Uint8Array.from(tape); this.max = maxSteps; this.heads = heads; this.reset(); }
+  reset() { this.tape = Uint8Array.from(this.initial); this.pc = 0; this.h0 = 0; this.h1 = 0;
+    if (this.heads) { this.h0 = this.tape[0] & 127; this.h1 = this.tape[1] & 127; this.pc = 2; } this.ops = 0; this.steps = 0; this.halted = null; this.lastWrite = -1; this.tortoise = -1; this.power = 1; this.lam = 0; }
   changed() { this.tortoise = -1; this.power = 1; this.lam = 0; }
   step() {
     if (this.halted) return false;
@@ -336,8 +337,9 @@ function parseProgram(text) {
   for (let i = 0; i < Math.min(64, t.length); i++) out[i] = t.charCodeAt(i) & 0xFF;
   return out;
 }
-function loadTape(tape, source, expectedAfter = null, maxSteps = 32768) {
-  st.vm = new BFF(tape, maxSteps);
+function loadTape(tape, source, expectedAfter = null, maxSteps = 32768, heads = null) {
+  if (heads === null) heads = !!(state.info && state.info.meta && state.info.meta.heads);
+  st.vm = new BFF(tape, maxSteps, heads);
   st.expectedAfter = expectedAfter;
   st.source = source;
   $('#st-source').textContent = source;
@@ -379,7 +381,7 @@ $('#st-reset').addEventListener('click', () => { if (!st.vm) return; stopPlay();
 $('#st-next-gen').addEventListener('click', () => {
   if (!st.vm) return;
   const t = new Uint8Array(128); t.set(st.vm.tape.slice(64), 0); t.set(randomBytes(64), 64);
-  loadTape(t, st.source.replace(/ · generation \d+$/, '') + ` · generation ${(+(st.source.match(/generation (\d+)$/) || [0, 1])[1]) + 1}`, null, st.vm.max);
+  loadTape(t, st.source.replace(/ · generation \d+$/, '') + ` · generation ${(+(st.source.match(/generation (\d+)$/) || [0, 1])[1]) + 1}`, null, st.vm.max, st.vm.heads);
 });
 $('#st-selfrep').addEventListener('click', async () => {
   if (!st.vm) { toast('Load a tape first'); return; }
@@ -405,7 +407,7 @@ async function watchBirth(epoch, slot) {
     const t = await api('tape', { epoch, slot });
     hideToast();
     const [a, b] = t.slots;
-    loadTape(t.before, `epoch ${fmt(epoch)}: slot ${a} (first half) + slot ${b} (second half) — the birth happened in slot ${slot}`, t.after, t.max_steps);
+    loadTape(t.before, `epoch ${fmt(epoch)}: slot ${a} (first half) + slot ${b} (second half) — the birth happened in slot ${slot}`, t.after, t.max_steps, !!t.heads);
   } catch (e) { toast('replay failed: ' + e.message); }
 }
 async function runSpecies(key) {
@@ -416,7 +418,7 @@ async function runSpecies(key) {
     else { t.set(parseProgram(key), 0); $('#st-a').value = key; toast('No raw copy in a checkpoint; using the instruction string with zero padding'); }
     t.set(randomBytes(64), 64);
     $('#st-b').value = '';
-    loadTape(t, `${p ? `raw program from checkpoint epoch ${fmt(p.epoch)}, slot ${p.slot}` : 'instruction string'} + random partner`, null, p ? p.max_steps : 32768);
+    loadTape(t, `${p ? `raw program from checkpoint epoch ${fmt(p.epoch)}, slot ${p.slot}` : 'instruction string'} + random partner`, null, p ? p.max_steps : 32768, p ? !!p.heads : null);
   } catch (e) { toast('failed: ' + e.message); }
 }
 window.showDetail = showDetail; window.traceLineage = traceLineage; window.watchBirth = watchBirth; window.runSpecies = runSpecies;

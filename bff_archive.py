@@ -84,7 +84,7 @@ def cluster_families(keys, max_dist=FAMILY_DISTANCE):
     return list(groups.values())
 
 
-def functional_profile(program, max_steps, trials=8, generations=8, seed=0):
+def functional_profile(program, max_steps, trials=8, generations=8, seed=0, heads=False):
     """
     How a program behaves against random partners: instruction usage, which head
     writes, net head movement, instructions per execution, and how many generations
@@ -99,7 +99,7 @@ def functional_profile(program, max_steps, trials=8, generations=8, seed=0):
     mirror = 0
     for _ in range(trials):
         tape = np.concatenate([program, rng.integers(0, 256, core.TAPE_SIZE, dtype=np.uint8)])
-        ops_list.append(int(core.evaluate(tape, max_steps)))
+        ops_list.append(int(core.evaluate(tape, max_steps, heads)))
         gens = 0
         for _ in range(generations):
             child = core.program_key(tape[core.TAPE_SIZE:])
@@ -109,7 +109,7 @@ def functional_profile(program, max_steps, trials=8, generations=8, seed=0):
                 break
             gens += 1
             tape = np.concatenate([tape[core.TAPE_SIZE:], rng.integers(0, 256, core.TAPE_SIZE, dtype=np.uint8)])
-            core.evaluate(tape, max_steps)
+            core.evaluate(tape, max_steps, heads)
         faithful.append(gens)
     writes_head0 = hist[','] + hist['+'] + hist['-']
     writes_head1 = hist['.']
@@ -161,7 +161,7 @@ def winners_at(run, epoch, top_n):
     uniq, first, counts = np.unique(hashes, return_index=True, return_counts=True)
     order = np.argsort(-counts, kind='stable')[:top_n]
     reps = soup[first[order]]
-    scores = core.selfrep_test(reps, seed=ck_epoch, max_steps=run.max_steps)
+    scores = core.selfrep_test(reps, seed=ck_epoch, max_steps=run.max_steps, heads_init=run.heads)
     out = []
     for k, i in enumerate(order.tolist()):
         h = int(uniq[i])
@@ -249,7 +249,7 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
             'share': float(sum(end_winners[i]['share'] for i in members)),
             'selfrep_score': max(end_winners[i]['selfrep_score'] for i in members),
             'replicating_members': sum(1 for i in members if end_winners[i]['selfrep_score'] >= core.SELFREP_THRESHOLD),
-            'profile': functional_profile(rep['program'], run.max_steps),
+            'profile': functional_profile(rep['program'], run.max_steps, heads=run.heads),
         }
         for i in members:
             end_winners[i]['family'] = fi
@@ -286,7 +286,7 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
     archive = {
         'run': name, 'host': host, 'protocol': protocol, 'path': os.path.abspath(run_path),
         'archived': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        'params': {k: meta.get(k) for k in ('num_programs', 'tape_size', 'seed', 'seed_label', 'mutation_prob', 'max_steps',
+        'params': {k: meta.get(k) for k in ('num_programs', 'tape_size', 'seed', 'seed_label', 'mutation_prob', 'max_steps', 'heads',
                                              'checkpoint_interval', 'lineage_min_len', 'promote_count', 'created',
                                              'finished', 'resumes', 'seed_programs')},
         'events': events,
