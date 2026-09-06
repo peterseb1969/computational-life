@@ -50,11 +50,20 @@ function showTab(name) {
 }
 
 // ------------------------------------------------------------------- runs
-async function loadRuns() {
+const runTag = (r) => ({ running: ' ▶ running', stalled: ' ⚠ stalled', finished: ' ■ finished' }[r.state ? r.state.state : 'running']);
+const runLabel = (r) => `${esc(r.name)} — ${fmt(r.num_programs)} programs, epoch ${fmt(r.last_epoch)}${runTag(r)}`;
+async function refreshRunList() {
   const runs = await api('runs');
   const sel = $('#run-select');
-  const tag = (r) => ({ running: ' ▶ running', stalled: ' ⚠ stalled', finished: ' ■ finished' }[r.state ? r.state.state : 'running']);
-  sel.innerHTML = runs.map((r) => `<option value="${esc(r.name)}">${esc(r.name)} — ${fmt(r.num_programs)} programs, epoch ${fmt(r.last_epoch)}${tag(r)}</option>`).join('');
+  const current = sel.value;
+  sel.innerHTML = runs.map((r) => `<option value="${esc(r.name)}">${runLabel(r)}</option>`).join('');
+  if (current) sel.value = current;
+  return runs;
+}
+setInterval(() => { refreshRunList().catch(() => {}); }, 30000);
+async function loadRuns() {
+  const runs = await refreshRunList();
+  const sel = $('#run-select');
   if (!runs.length) { toast('No runs found in the runs directory', true); return; }
   const want = hashParams().run;
   const pick = runs.find((r) => r.name === want) || runs.reduce((a, b) => (b.created > a.created ? b : a));
@@ -141,10 +150,7 @@ async function refreshHeader() {
     state.info = info;
     $('#run-status').innerHTML = statusText(info);
     const opt = $('#run-select').querySelector(`option[value="${CSS.escape(state.run)}"]`);
-    if (opt) {
-      const tag = { running: ' ▶ running', stalled: ' ⚠ stalled', finished: ' ■ finished' }[info.state ? info.state.state : 'running'];
-      opt.textContent = `${state.run} — ${fmt(info.meta.num_programs)} programs, epoch ${fmt(info.last_epoch)}${tag}`;
-    }
+    if (opt) opt.innerHTML = runLabel({ name: state.run, num_programs: info.meta.num_programs, last_epoch: info.last_epoch, state: info.state });
   } catch (e) { /* server away: keep the last state */ }
 }
 setInterval(refreshHeader, 10000);

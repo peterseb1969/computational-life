@@ -86,7 +86,7 @@ def run_state(rd, meta):
         st = meta.get('stop_triggered')
         reason = st['reason'] if st else f"reached the epoch cap ({meta.get('max_epochs')})"
         return {'state': 'finished', 'reason': reason, 'epoch': meta.get('last_epoch'), 'log_age_s': age}
-    if age is not None and age > 180:
+    if age is not None and age > 60:          # a running soup writes the log several times a second
         return {'state': 'stalled', 'reason': f"no log update for {age / 60:.0f} minutes (crashed or paused?)", 'log_age_s': age}
     return {'state': 'running', 'reason': None, 'log_age_s': age}
 
