@@ -38,7 +38,7 @@ from collections import deque
 
 import numpy as np
 
-from bff_core import to_signed, to_unsigned, program_key, TAPE_SIZE
+from bff_core import to_signed, to_unsigned, program_key, unique_counts, TAPE_SIZE
 
 CHANGE_DTYPE = np.dtype([('epoch', '<u4'), ('slot', '<u4'), ('partner', '<u4'), ('hash', '<u8')])
 PENDING_DTYPE = np.dtype([('hash', '<u8'), ('epoch', '<u4'), ('slot', '<u4'), ('partner', '<u4'),
@@ -162,8 +162,9 @@ class HashSet:
         idx_c = np.minimum(idx, max(self.base.size - 1, 0))
         mask = (idx < self.base.size) & (self.base[idx_c] == hashes) if self.base.size else np.zeros(hashes.size, bool)
         if self.recent:
-            rec = self.recent
-            mask |= np.fromiter((int(h) in rec for h in hashes.tolist()), dtype=bool, count=hashes.size)
+            hit = self.recent.intersection(hashes.tolist())
+            if hit:
+                mask |= np.isin(hashes, np.fromiter(hit, dtype=np.uint64, count=len(hit)))
         return mask
 
     def add(self, h):
@@ -293,7 +294,7 @@ class LineageWriter:
 
         slots = np.flatnonzero(lengths >= self.min_len)
         if slots.size:
-            uniq, first, counts = np.unique(hashes[slots], return_index=True, return_counts=True)
+            uniq, first, counts = unique_counts(hashes[slots])
             arr = np.zeros(uniq.size, dtype=PENDING_DTYPE)
             arr['hash'] = uniq
             arr['epoch'] = 0
@@ -328,11 +329,12 @@ class LineageWriter:
                 self.change_buffer.append((epoch, recs))
 
                 # candidate births: hashes neither recorded nor already pending
-                u, first = np.unique(hashes[sig], return_index=True)
+                u, first, _ = unique_counts(hashes[sig])
                 known = self.promoted.contains_mask(u)
                 if self.pending:
-                    pend = self.pending
-                    known |= np.fromiter((int(h) in pend for h in u.tolist()), dtype=bool, count=u.size)
+                    hit = self.pending.keys() & set(u.tolist())
+                    if hit:
+                        known |= np.isin(u, np.fromiter(hit, dtype=np.uint64, count=len(hit)))
                 new = np.flatnonzero(~known)
                 if new.size:
                     slots = sig[first[new]]

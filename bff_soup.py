@@ -25,6 +25,7 @@ import json
 import os
 import sys
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -155,7 +156,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     prev_hash, prev_len = core.compute_keys(soup)
     if not resume_path:
         lineage.record_initial(soup, prev_hash, prev_len)
-        u0, f0, c0 = np.unique(prev_hash, return_index=True, return_counts=True)
+        u0, f0, c0 = core.unique_counts(prev_hash)
         lineage.record_counts(0, u0, c0, soup, f0)
         core.save_checkpoint(soup, 0, rd.checkpoint_path(0), ckpt_meta)
         lineage.commit()
@@ -190,19 +191,22 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     epoch = start_epoch - 1
     metrics = {'higher_entropy': float('nan'), 'bpb': float('nan'), 'h0': float('nan'),
                'compressed': -1, 'nbytes': 0}
-    pool = ThreadPoolExecutor(max_workers=1)   # compression overlaps the next epoch (brotli releases the GIL)
-    pending_metrics = None                       # (epoch, future)
-    pending_row = None                           # log row of the previous epoch waiting for its metrics
+    pool = ThreadPoolExecutor(max_workers=2)   # compression overlaps later epochs (brotli releases the GIL)
+    queue = deque()                              # (row template, future or None) in epoch order
+    metrics_future = None                        # future of the most recent metrics job
 
-    def finish_row():
-        nonlocal pending_metrics, pending_row, metrics
-        if pending_metrics is not None:
-            metrics = pending_metrics[1].result()
-            pending_metrics = None
-        if pending_row is not None:
-            log.write(pending_row.format(**metrics))
-            log.flush()
-            pending_row = None
+    def finish_rows(wait=False):
+        """Write queued log rows whose metrics are ready (all of them when wait=True)."""
+        nonlocal metrics
+        while queue:
+            row, fut = queue[0]
+            if fut is not None:
+                if not (wait or fut.done()):
+                    break
+                metrics = fut.result()
+            log.write(row.format(**metrics))
+            queue.popleft()
+        log.flush()
 
     try:
         for epoch in range(start_epoch, max_epochs):
@@ -213,14 +217,17 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
 
             # -- keys, changes, births ---------------------------------------
             if metric_interval and epoch % metric_interval == 0:
-                data = (soup if metric_sample <= 0 else soup[:metric_sample]).tobytes()
-                finish_row()
-                pending_metrics = (epoch, pool.submit(core.complexity_metrics, np.frombuffer(data, dtype=np.uint8)))
+                sample = (soup if metric_sample <= 0 else soup[:metric_sample]).copy()
+                metrics_future = pool.submit(core.complexity_metrics, sample)
+                if len(queue) >= 4:            # never let more than a few epochs run ahead of their metrics
+                    finish_rows(wait=True)
+            else:
+                metrics_future = None
 
             cur_hash, cur_len = core.compute_keys(soup)
             changed = np.flatnonzero(cur_hash != prev_hash)
             partner = core.partners_from_perm(perm)
-            uniq, first_idx, counts = np.unique(cur_hash, return_index=True, return_counts=True)
+            uniq, first_idx, counts = core.unique_counts(cur_hash)
             n_new, n_prom = lineage.record_epoch(epoch, soup, prev_soup, prev_hash, prev_len, cur_hash, cur_len,
                                                  changed, partner, uniq, first_idx, counts)
             prev_hash, prev_len = cur_hash, cur_len
@@ -247,14 +254,14 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
 
             # -- log ---------------------------------------------------------
             elapsed = time.time() - t0
-            pending_row = (f"{epoch},{{compressed}},{{nbytes}},{{higher_entropy:.6f}},{{h0:.6f}},{{bpb:.6f}},"
-                           f"{ops.mean():.2f},{uniq.size},{top_share:.6f},{top_len},"
-                           f"{changed.size},{n_new},{n_prom},{selfrep_slots},{elapsed:.1f}\n")
-            if pending_metrics is None:
-                finish_row()
+            queue.append((f"{epoch},{{compressed}},{{nbytes}},{{higher_entropy:.6f}},{{h0:.6f}},{{bpb:.6f}},"
+                          f"{ops.mean():.2f},{uniq.size},{top_share:.6f},{top_len},"
+                          f"{changed.size},{n_new},{n_prom},{selfrep_slots},{elapsed:.1f}\n", metrics_future))
+            finish_rows()
 
             # -- progress ----------------------------------------------------
             if epoch % print_interval == 0:
+                finish_rows(wait=True)
                 now = time.time()
                 rate = (epoch - epoch_last) / (now - t_last) if now > t_last and epoch > epoch_last else 0.0
                 t_last, epoch_last = now, epoch
@@ -263,8 +270,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                       f"{selfrep_slots:8d} {rate:6.1f}", flush=True)
 
             # -- stop conditions ---------------------------------------------
-            if stop_at is None:
-                reason = None
+            if stop_at is None and (stop_entropy is not None or stop_share is not None or stop_selfreps is not None):
+                reason = None              # entropy may lag a few epochs behind (metrics run in the background)
                 if stop_entropy is not None and metrics['higher_entropy'] > stop_entropy:
                     reason = f"higher-order entropy {metrics['higher_entropy']:.2f} > {stop_entropy}"
                 elif stop_share is not None and 100 * top_share > stop_share:
@@ -283,7 +290,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         print("\nInterrupted.", flush=True)
 
     # ---- final checkpoint and cleanup -------------------------------------
-    finish_row()
+    finish_rows(wait=True)
     pool.shutdown()
     if epoch >= start_epoch:
         core.save_checkpoint(soup, epoch, rd.checkpoint_path(epoch), ckpt_meta)

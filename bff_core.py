@@ -227,6 +227,65 @@ def key_hashes(soup, is_cmd, out_hash, out_len):
         out_len[i] = length
 
 
+@njit(cache=True)
+def _byte_histogram(arr):
+    """Histogram of a uint8 array. Deliberately single-threaded: it runs in the metrics
+    thread, and Numba's default threading layer must not be entered from two threads."""
+    counts = np.zeros(256, dtype=np.int64)
+    for i in range(arr.shape[0]):
+        counts[arr[i]] += 1
+    return counts
+
+
+def byte_histogram(arr):
+    return _byte_histogram(np.ascontiguousarray(arr).reshape(-1))
+
+
+@njit(cache=True)
+def _unique_counts(hashes, uniq, first, counts, table_key, table_idx):
+    """Open-addressing hash table: unique hashes in order of first occurrence."""
+    n = hashes.shape[0]
+    cap = table_key.shape[0]
+    mask = cap - 1
+    k = 0
+    for i in range(n):
+        h = hashes[i]
+        slot = int((h * np.uint64(0x9E3779B97F4A7C15)) >> np.uint64(40)) & mask
+        while True:
+            j = table_idx[slot]
+            if j < 0:
+                table_key[slot] = h
+                table_idx[slot] = k
+                uniq[k] = h
+                first[k] = i
+                counts[k] = 1
+                k += 1
+                break
+            if table_key[slot] == h:
+                counts[j] += 1
+                break
+            slot = (slot + 1) & mask
+    return k
+
+
+def unique_counts(hashes):
+    """
+    (uniq, first_index, counts) of a uint64 array, like np.unique(..., return_index=True,
+    return_counts=True) but in order of first occurrence and without sorting.
+    """
+    n = hashes.shape[0]
+    cap = 1
+    while cap < 2 * n:
+        cap <<= 1
+    uniq = np.empty(n, dtype=np.uint64)
+    first = np.empty(n, dtype=np.int64)
+    counts = np.empty(n, dtype=np.int64)
+    table_key = np.empty(cap, dtype=np.uint64)
+    table_idx = np.full(cap, -1, dtype=np.int64)
+    k = _unique_counts(np.ascontiguousarray(hashes), uniq, first, counts, table_key, table_idx)
+    return uniq[:k], first[:k], counts[:k]
+
+
 def compute_keys(soup):
     """Return (hashes uint64[n], lengths int32[n]) for a (n, 64) soup."""
     n = soup.shape[0]
@@ -342,8 +401,8 @@ except ImportError:  # pragma: no cover
 
 def shannon_entropy(data):
     """H0 in bits per byte of a bytes object / uint8 array."""
-    arr = np.frombuffer(data, dtype=np.uint8) if isinstance(data, (bytes, bytearray)) else data.ravel()
-    counts = np.bincount(arr, minlength=256)
+    arr = np.frombuffer(data, dtype=np.uint8) if isinstance(data, (bytes, bytearray)) else data.reshape(-1)
+    counts = byte_histogram(arr)
     probs = counts[counts > 0] / arr.size
     return float(-np.sum(probs * np.log2(probs)))
 
@@ -353,9 +412,10 @@ def complexity_metrics(soup):
     Returns dict(compressed, nbytes, h0, bpb, higher_entropy) for a soup array.
     higher_entropy = H0 - bits_per_byte_after_compression (paper's definition).
     """
-    data = np.ascontiguousarray(soup).tobytes()
+    arr = np.ascontiguousarray(soup).reshape(-1)
+    data = arr.tobytes()
     comp = compressed_size(data)
-    h0 = shannon_entropy(data)
+    h0 = shannon_entropy(arr)
     bpb = comp * 8.0 / len(data)
     return {'compressed': comp, 'nbytes': len(data), 'h0': h0, 'bpb': bpb,
             'higher_entropy': h0 - bpb}
