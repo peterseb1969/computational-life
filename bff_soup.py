@@ -109,6 +109,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         max_steps = ck.get('max_steps', DEFAULT_MAX_STEPS)
         start_epoch = ck['epoch'] + 1
         meta = rd.read_meta() if rd.exists() else {}
+        seed_label = meta.get('seed_label', str(seed))
         # recording settings must stay what they were for the run to remain consistent
         checkpoint_interval = meta.get('checkpoint_interval', checkpoint_interval)
         species_interval = meta.get('species_interval', species_interval)
@@ -127,7 +128,9 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         truncate_log(rd.log_path, ck['epoch'])
         print(f"Resuming {rd.path} from {ckpt} at epoch {start_epoch}")
     else:
-        rd = RunDir(run_dir_path or os.path.join('runs', str(seed)))
+        seed_label = str(seed)
+        seed = core.seed_to_int(seed)
+        rd = RunDir(run_dir_path or os.path.join('runs', seed_label))
         if rd.exists():
             sys.exit(f"Run directory {rd.path} already exists. Use --resume {rd.path} or pick another --run-dir.")
         rd.create()
@@ -152,7 +155,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     cascade_max = DEFAULT_CASCADE_MAX if cascade_max is None else cascade_max
 
     meta.update({
-        'num_programs': num_programs, 'tape_size': TAPE_SIZE, 'seed': seed,
+        'num_programs': num_programs, 'tape_size': TAPE_SIZE, 'seed': seed, 'seed_label': seed_label,
         'mutation_prob': mutation_prob, 'max_steps': max_steps,
         'checkpoint_interval': checkpoint_interval, 'species_interval': species_interval,
         'selfrep_interval': selfrep_interval, 'selfrep_top': selfrep_top,
@@ -192,7 +195,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         log.write(','.join(LOG_COLUMNS) + '\n')
 
     # ---- main loop ----------------------------------------------------------
-    print(f"BFF Primordial Soup: {num_programs} programs, seed {seed}, "
+    print(f"BFF Primordial Soup: {num_programs} programs, seed {seed_label}{'' if seed_label == str(seed) else f' ({seed})'}, "
           f"mutation {mutation_prob:g}, max_steps {max_steps}, run dir {rd.path}")
     print(f"{'Epoch':>8} {'Entropy':>8} {'bpb':>6} {'Ops/Pair':>9} {'Species':>8} {'Top%':>6} "
           f"{'SelfRep':>8} {'ep/s':>6}")
@@ -352,7 +355,8 @@ def main(argv=None):
     g = p.add_argument_group("simulation")
     g.add_argument("--num", type=int, default=1024, help="number of programs (even)")
     g.add_argument("--epochs", type=int, default=10000, help="run until this epoch number")
-    g.add_argument("--seed", type=int, default=42, help="random seed")
+    g.add_argument("--seed", type=str, default="42",
+                   help="random seed: a number, or any name such as mini-15 (hashed to an integer; also the run's name)")
     g.add_argument("--mutation-prob", type=float, default=0.0,
                    help="per-byte mutation probability per epoch (paper default 1/4096 = 0.000244)")
     g.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS,

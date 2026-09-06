@@ -424,6 +424,21 @@ def complexity_metrics(soup):
 # ---------------------------------------------------------------------------
 # Deterministic RNG streams
 # ---------------------------------------------------------------------------
+def seed_to_int(seed):
+    """
+    Seeds may be any text. A decimal number is used as is; any other string is hashed
+    (SHA-256, first 8 bytes) so names like 'mini-15' are valid, unique and reproducible
+    on every machine.
+    """
+    if isinstance(seed, (int, np.integer)):
+        return int(seed)
+    s = str(seed).strip()
+    if s.lstrip('-').isdigit():
+        return int(s)
+    import hashlib
+    return int.from_bytes(hashlib.sha256(s.encode('utf-8')).digest()[:8], 'little')
+
+
 def init_rng(seed):
     """RNG used to draw the initial random soup."""
     return np.random.default_rng([int(seed), 0, 0])

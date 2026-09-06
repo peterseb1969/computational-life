@@ -48,7 +48,7 @@ def run_row(a):
     host = a.get('host') or {}
     return {
         'run': a['run'], 'host': host.get('host', '?'), 'protocol': a.get('protocol', '?'),
-        'programs': pr['num_programs'], 'seed': pr['seed'], 'max_steps': pr['max_steps'],
+        'programs': pr['num_programs'], 'seed': pr.get('seed_label') or pr['seed'], 'max_steps': pr['max_steps'],
         'mutation': pr['mutation_prob'], 'epochs': ev['last_epoch'], 'eps': ev['epochs_per_second'],
         'transition': ev['transition_epoch'], 'first_selfrep': ev['first_selfrep_epoch'],
         'takeover': ev.get('selfrep_gt_50pct'), 'entropy_gt_3': ev.get('entropy_gt_3'),
@@ -75,7 +75,7 @@ def fmt(c, v):
 
 
 def print_table(rows):
-    cols = [('run', 5), ('host', 12), ('protocol', 14), ('seed', 5), ('epochs', 7), ('eps', 5),
+    cols = [('run', 8), ('host', 12), ('protocol', 14), ('seed', 8), ('epochs', 7), ('eps', 5),
             ('first_selfrep', 13), ('transition', 10), ('plateau', 8), ('final_entropy', 13),
             ('top_share', 9), ('top_selfrep', 11), ('top_len', 7), ('top_copies_as', 13), ('top_core', 0)]
     print(' '.join(f"{c:>{w}}" if w else c for c, w in cols))

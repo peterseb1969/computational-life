@@ -286,7 +286,7 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
     archive = {
         'run': name, 'host': host, 'protocol': protocol, 'path': os.path.abspath(run_path),
         'archived': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        'params': {k: meta.get(k) for k in ('num_programs', 'tape_size', 'seed', 'mutation_prob', 'max_steps',
+        'params': {k: meta.get(k) for k in ('num_programs', 'tape_size', 'seed', 'seed_label', 'mutation_prob', 'max_steps',
                                              'checkpoint_interval', 'lineage_min_len', 'promote_count', 'created',
                                              'finished', 'resumes', 'seed_programs')},
         'events': events,

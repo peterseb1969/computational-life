@@ -109,7 +109,7 @@ An active pre-transition soup produces tens of thousands of never-repeated keys 
 
 ### Determinism and resuming
 
-The pairing of every epoch derives from `(seed, epoch)`, so a run resumed from any checkpoint reproduces exactly the trajectory the uninterrupted run would have taken. Resuming keeps the run's recorded settings; only `--epochs`, the stop conditions, `--print-interval` and the recording policy flags apply. Resuming from the final checkpoint of a stopped run restores the recorder's window too, so the result is identical to an uninterrupted run; from an earlier checkpoint the window starts empty (noted in `meta.json`).
+Seeds may be numbers or names: a name such as `mini-15` is hashed to a 64-bit integer, is reproducible on every machine, and names the run directory, which keeps runs from different machines apart. The pairing of every epoch derives from `(seed, epoch)`, so a run resumed from any checkpoint reproduces exactly the trajectory the uninterrupted run would have taken. Resuming keeps the run's recorded settings; only `--epochs`, the stop conditions, `--print-interval` and the recording policy flags apply. Resuming from the final checkpoint of a stopped run restores the recorder's window too, so the result is identical to an uninterrupted run; from an earlier checkpoint the window starts empty (noted in `meta.json`).
 
 ```bash
 python3 bff_soup.py --resume runs/44 --epochs 80000                 # latest checkpoint
@@ -122,7 +122,7 @@ python3 bff_soup.py --resume runs/44/checkpoints/0000010240.dat     # a specific
 simulation:
   --num N               Number of programs, even (default: 1024)
   --epochs N            Run until this epoch number (default: 10000)
-  --seed N              Random seed (default: 42)
+  --seed S              Random seed: a number, or any name such as mini-15 (hashed; also the run's name)
   --mutation-prob P     Per-byte mutation probability per epoch (default: 0; paper: 0.000244)
   --max-steps N         Step budget per tape execution (default: 32768; paper: 8192)
   --seed-programs F.npy[:N]  Plant N copies of the programs in F (n x 64 uint8) into random slots
