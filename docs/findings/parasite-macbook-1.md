@@ -1,6 +1,6 @@
 # A parasite kills the first life in a BFF soup
 
-*Run `macbook-1`, protocol `128k-8192` (131072 programs, 8192 steps per tape, no mutation, heads start at 0), MacBook Pro M4, 2026-09-06. Archive: `ps-macbook-pro-macbook-1.json` in the results repository.*
+*Run `macbook-1`, protocol `128k-8192` (131072 programs, 8192 steps per tape, no mutation, heads start at 0), MacBook Pro M4, 2026-09-06. Archive: [`ps-macbook-pro-macbook-1.json`](https://github.com/peterseb1969/computational-life-results/blob/main/archive/ps-macbook-pro-macbook-1.json) in the [results repository](https://github.com/peterseb1969/computational-life-results).*
 
 ## Summary
 
@@ -114,7 +114,11 @@ python3 bff_soup.py --resume runs/macbook-1 --epochs 130000
 
 ## Watch it happen in the stepper
 
-The viewer's Stepper tab replays the hijack with real bytes, instruction by instruction.
+The viewer's Stepper tab replays the hijack with real bytes, instruction by instruction. It needs the run directory, which anyone can regenerate because the simulation is deterministic: the seed fixes the initial soup and every epoch's pairing. About 20 minutes on an M4 Pro, byte-identical to the original:
+
+```bash
+python3 bff_soup.py --seed macbook-1 --num 131072 --max-steps 8192 --metric-sample 32768 --epochs 60000
+```
 
 1. Start the viewer with `python3 bff_web.py` and pick run `macbook-1`. Open the **Stepper** tab.
 2. Type the parasite's key `[..{>>{..[` into **Program A**, the replicator's key `[..{>]]>{..[` into **Program B**, and `56000` into **at epoch** (both species are abundant in the checkpoint at 55,808; at the latest checkpoint the replicator is extinct).

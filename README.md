@@ -226,11 +226,11 @@ python3 bff_compare.py --families      # leading family cores across runs, recur
 python3 bff_compare.py --csv runs.csv  # one row per run
 ```
 
-**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of a results repository, and commit the archive when a run ends. For transition statistics let runs stop themselves shortly after takeover: `--stop-selfreps 65536 --stop-after 2048 --epochs 60000`. A run that reaches the epoch cap without a transition is a censored observation, and the survival table treats it as such.
+**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of the [results repository](https://github.com/peterseb1969/computational-life-results), and commit the archive when a run ends. For transition statistics let runs stop themselves shortly after takeover: `--stop-selfreps 65536 --stop-after 2048 --epochs 60000`. A run that reaches the epoch cap without a transition is a censored observation, and the survival table treats it as such.
 
 ## Findings
 
-Write-ups of what the runs showed live in `docs/findings/`:
+Write-ups of what the runs showed live in `docs/findings/`; the run archives they rest on are published in [computational-life-results](https://github.com/peterseb1969/computational-life-results):
 
 - [A parasite kills the first life in a BFF soup](docs/findings/parasite-macbook-1.md): emergence at 49k epochs, a loopless variant that reproduces by hijacking the replicator's copy loop, host extinction, parasite extinction, decay back to noise.
 
