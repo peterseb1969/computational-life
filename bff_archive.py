@@ -198,7 +198,12 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
         'stop_triggered': meta.get('stop_triggered'),
         'last_epoch': last_epoch,
     }
-    transition = events['entropy_gt_3'] if events['entropy_gt_3'] is not None else events['share_gt_5pct']
+    # takeover: half the soup holds self-replicators (a diverse replicator ecosystem may never push
+    # entropy above 3, as in run 44). The transition epoch is the earliest of the two signals.
+    sr_slots = log['selfrep_slots']
+    events['selfrep_gt_50pct'] = first_epoch_where(ep, sr_slots, lambda v: v >= 0.5 * run.num_programs)
+    candidates = [e for e in (events['entropy_gt_3'], events['selfrep_gt_50pct']) if e is not None]
+    transition = min(candidates) if candidates else events['share_gt_20pct']
     events['transition_epoch'] = transition
     dt = np.diff(log['elapsed_s'])          # elapsed restarts at 0 after a resume: count only forward steps
     fwd = dt >= 0
@@ -300,7 +305,8 @@ def print_summary(a):
     ev = a['events']
     print(f"Run {a['run']}: {a['params']['num_programs']} programs, seed {a['params']['seed']}, "
           f"{ev['last_epoch']} epochs, {ev['epochs_per_second'] or 0:.1f} epochs/s")
-    print(f"  transition (entropy > 3): {ev['entropy_gt_3']}   first self-replicator: {ev['first_selfrep_epoch']}   "
+    print(f"  transition: {ev['transition_epoch']} (entropy > 3: {ev['entropy_gt_3']}, replicators > 50%: {ev.get('selfrep_gt_50pct')})   "
+          f"first self-replicator: {ev['first_selfrep_epoch']}   "
           f"share > 5%: {ev['share_gt_5pct']}   share > 20%: {ev['share_gt_20pct']}")
     print(f"  final: entropy {a['final']['higher_entropy']:.2f}, bpb {a['final']['bpb']:.2f}, "
           f"{a['final']['unique_species']} species, top share {100 * a['final']['top_share']:.1f}%")

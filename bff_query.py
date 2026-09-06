@@ -459,8 +459,10 @@ class Run:
             if tracked:
                 node[role] = self.trace_species(hh, depth - 1, _seen)
             else:
+                short = key is not None and len(key) < self.min_len
                 node[role] = {'hash': hh, 'key': key, 'tracked': False,
-                              'note': 'background key (shorter than lineage-min-len)'}
+                              'note': ('background key (shorter than lineage-min-len)' if short else
+                                       'not recorded (never reached the promotion count while in the window)')}
         return node
 
     def trace_instance(self, epoch, slot, depth=8):

@@ -41,6 +41,7 @@ def run_row(a):
         'run': a['run'], 'programs': pr['num_programs'], 'seed': pr['seed'], 'max_steps': pr['max_steps'],
         'mutation': pr['mutation_prob'], 'epochs': ev['last_epoch'], 'eps': ev['epochs_per_second'],
         'transition': ev['transition_epoch'], 'first_selfrep': ev['first_selfrep_epoch'],
+        'takeover': ev.get('selfrep_gt_50pct'),
         'share_gt_20pct': ev['share_gt_20pct'], 'final_entropy': fi['higher_entropy'],
         'final_species': fi['unique_species'],
         'top_core': fam['core'] if fam else None, 'top_share': fam['share'] if fam else None,
@@ -52,7 +53,7 @@ def run_row(a):
 
 def print_table(rows):
     cols = [('run', 8), ('programs', 8), ('seed', 5), ('max_steps', 9), ('mutation', 9), ('epochs', 7), ('eps', 5),
-            ('transition', 10), ('first_selfrep', 13), ('final_entropy', 13), ('top_share', 9), ('top_selfrep', 11), ('top_core', 0)]
+            ('transition', 10), ('first_selfrep', 13), ('takeover', 8), ('final_entropy', 13), ('top_share', 9), ('top_selfrep', 11), ('top_core', 0)]
     print(' '.join(f"{c:>{w}}" if w else c for c, w in cols))
     for r in rows:
         cells = []
