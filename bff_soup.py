@@ -108,7 +108,8 @@ def host_info():
 def protocol_name(num_programs, max_steps, mutation_prob, heads=False):
     """Canonical label of the experimental setup, so runs can be grouped for statistics."""
     size = f"{num_programs // 1024}k" if num_programs % 1024 == 0 else str(num_programs)
-    return f"{size}-{max_steps}" + ("-mut" if mutation_prob > 0 else "") + ("-heads" if heads else "")
+    mut = f"-mut{int(round(1 / mutation_prob))}" if mutation_prob > 0 else ""      # -mut4096 = one byte in 4096 per epoch
+    return f"{size}-{max_steps}{mut}" + ("-heads" if heads else "")
 
 
 def default_seed_name(runs_root='runs'):
