@@ -313,7 +313,9 @@ def save_archive(archive, out_path):
 def default_archive_path(run_path, archive_dir='archive', host=None):
     """archive/<host>-<run>.json: runs are named by seed, so the host keeps machines apart."""
     name = os.path.basename(os.path.normpath(run_path))
-    return os.path.join(archive_dir, f"{host}-{name}.json" if host else f"{name}.json")
+    if host and not name.startswith(host + '-'):        # default run names already carry the host
+        name = f"{host}-{name}"
+    return os.path.join(archive_dir, f"{name}.json")
 
 
 def build_and_save(run_path, out_path=None, archive_dir='archive', **kw):
