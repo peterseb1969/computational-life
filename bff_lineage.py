@@ -39,6 +39,7 @@ from collections import deque
 import numpy as np
 
 from bff_core import to_signed, to_unsigned, program_key, unique_counts, TAPE_SIZE
+from bff_hash import HashMap
 
 CHANGE_DTYPE = np.dtype([('epoch', '<u4'), ('slot', '<u4'), ('partner', '<u4'), ('hash', '<u8')])
 PENDING_DTYPE = np.dtype([('hash', '<u8'), ('epoch', '<u4'), ('slot', '<u4'), ('partner', '<u4'),
@@ -134,48 +135,28 @@ class RunDir:
 
 
 class HashSet:
-    """
-    Membership set for uint64 hashes: a sorted base array (binary search) plus a
-    Python set of recent additions, merged into the base once it grows large.
-    """
+    """Set of uint64 hashes with array-valued membership tests (backed by bff_hash.HashMap)."""
 
-    def __init__(self, initial=None, merge_threshold=1 << 18):
-        self.base = np.unique(np.asarray(initial if initial is not None else [], dtype=np.uint64))
-        self.recent = set()
-        self.merge_threshold = merge_threshold
+    def __init__(self, initial=None):
+        initial = np.asarray(initial if initial is not None else [], dtype=np.uint64)
+        self.map = HashMap(max(1 << 16, 4 * initial.size), keys=initial)
 
     def __len__(self):
-        return int(self.base.size + len(self.recent))
+        return len(self.map)
 
     def __contains__(self, h):
-        h = int(h)
-        if h in self.recent:
-            return True
-        i = int(np.searchsorted(self.base, np.uint64(h)))
-        return i < self.base.size and int(self.base[i]) == h
+        return int(h) in self.map
 
     def contains_mask(self, hashes):
-        hashes = np.asarray(hashes, dtype=np.uint64)
-        if hashes.size == 0:
-            return np.zeros(0, dtype=bool)
-        idx = np.searchsorted(self.base, hashes)
-        idx_c = np.minimum(idx, max(self.base.size - 1, 0))
-        mask = (idx < self.base.size) & (self.base[idx_c] == hashes) if self.base.size else np.zeros(hashes.size, bool)
-        if self.recent:
-            hit = self.recent.intersection(hashes.tolist())
-            if hit:
-                mask |= np.isin(hashes, np.fromiter(hit, dtype=np.uint64, count=len(hit)))
-        return mask
+        return self.map.contains(np.asarray(hashes, dtype=np.uint64))
 
     def add(self, h):
-        self.recent.add(int(h))
-        if len(self.recent) >= self.merge_threshold:
-            self._merge()
+        self.map.insert(np.array([int(h)], dtype=np.uint64), np.ones(1, dtype=np.int64))
 
-    def _merge(self):
-        if self.recent:
-            self.base = np.union1d(self.base, np.fromiter(self.recent, dtype=np.uint64, count=len(self.recent)))
-            self.recent = set()
+
+def _pending_vals(epoch, n):
+    """Value stored for a pending birth: (epoch << 32) | row index."""
+    return (np.int64(epoch) << 32) | np.arange(n, dtype=np.int64)
 
 
 class LineageWriter:
@@ -207,7 +188,7 @@ class LineageWriter:
                                             dtype=np.uint64))
         self.known_text = set(to_unsigned(h) for (h,) in self.db.execute("SELECT hash FROM keys"))
         # rolling window
-        self.pending = {}                 # hash -> (epoch, row index)
+        self.pending = HashMap(1 << 20)   # hash -> (epoch << 32) | row index
         self.pending_epochs = deque()     # (epoch, PENDING_DTYPE array)
         self.change_buffer = deque()      # (epoch, CHANGE_DTYPE array)
         self.window_reset = False
@@ -249,8 +230,7 @@ class LineageWriter:
         for e in np.unique(pend['epoch']).tolist():
             arr = pend[pend['epoch'] == e]
             self.pending_epochs.append((e, arr))
-            for i, h in enumerate(arr['hash'].tolist()):
-                self.pending[h] = (e, i)
+            self.pending.insert(arr['hash'], _pending_vals(e, arr.shape[0]))
         for e in np.unique(chg['epoch']).tolist():
             self.change_buffer.append((e, chg[chg['epoch'] == e]))
         return True
@@ -258,8 +238,7 @@ class LineageWriter:
     def save_pending(self, epoch):
         parts = []
         for e, arr in self.pending_epochs:   # keep only births still pending (not promoted/superseded)
-            live = np.fromiter((self.pending.get(h) == (e, i) for i, h in enumerate(arr['hash'].tolist())),
-                               dtype=bool, count=arr.shape[0])
+            live = self.pending.get(arr['hash']) == _pending_vals(e, arr.shape[0])
             parts.append(arr[live])
         pend = np.concatenate(parts) if parts else np.empty(0, dtype=PENDING_DTYPE)
         chg = (np.concatenate([a for _, a in self.change_buffer]) if self.change_buffer
@@ -302,8 +281,7 @@ class LineageWriter:
             arr['partner'] = NO_PARTNER
             arr['child'] = soup[slots[first]]
             self.pending_epochs.append((0, arr))
-            for i, h in enumerate(uniq.tolist()):
-                self.pending[h] = (0, i)
+            self.pending.insert(uniq, _pending_vals(0, uniq.size))
             for h in uniq[counts >= self.promote_count].tolist():
                 self._promote(h, 0)
         self.db.commit()
@@ -331,10 +309,8 @@ class LineageWriter:
                 # candidate births: hashes neither recorded nor already pending
                 u, first, _ = unique_counts(hashes[sig])
                 known = self.promoted.contains_mask(u)
-                if self.pending:
-                    hit = self.pending.keys() & set(u.tolist())
-                    if hit:
-                        known |= np.isin(u, np.fromiter(hit, dtype=np.uint64, count=len(hit)))
+                if len(self.pending):
+                    known |= self.pending.contains(u)
                 new = np.flatnonzero(~known)
                 if new.size:
                     slots = sig[first[new]]
@@ -349,24 +325,20 @@ class LineageWriter:
                     arr['parent'] = prev_soup[slots]
                     arr['partner_prog'] = prev_soup[partner[slots]]
                     self.pending_epochs.append((epoch, arr))
-                    for i, h in enumerate(u[new].tolist()):
-                        self.pending[h] = (epoch, i)
+                    self.pending.insert(u[new], _pending_vals(epoch, new.size))
                     n_new = int(new.size)
 
         # promotions: pending species now present in two or more slots
-        if self.pending:
+        if len(self.pending):
             multi = uniq[(counts >= self.promote_count) & (lengths[first_idx] >= self.min_len)]
-            for h in multi.tolist():
-                if h in self.pending:
-                    n_prom += self._promote(h, epoch)
+            for h in multi[self.pending.contains(multi)].tolist():
+                n_prom += self._promote(h, epoch)        # may already be gone via a cascade
 
         # expiry
         cutoff = epoch - self.window
         while self.pending_epochs and self.pending_epochs[0][0] <= cutoff:
             e, arr = self.pending_epochs.popleft()
-            for i, h in enumerate(arr['hash'].tolist()):
-                if self.pending.get(h) == (e, i):
-                    del self.pending[h]
+            self.pending.delete(arr['hash'], _pending_vals(e, arr.shape[0]))
         while self.change_buffer and self.change_buffer[0][0] <= cutoff:
             e, recs = self.change_buffer.popleft()
             self._flush_changes_for(e, recs)
@@ -377,10 +349,12 @@ class LineageWriter:
         return n_new, n_prom
 
     def _pending_record(self, h):
-        loc = self.pending.pop(h, None)
-        if loc is None:
+        key = np.array([int(h)], dtype=np.uint64)
+        v = int(self.pending.get(key)[0])
+        if v < 0:
             return None
-        e, i = loc
+        self.pending.delete(key)
+        e, i = v >> 32, v & 0xFFFFFFFF
         for pe, arr in self.pending_epochs:
             if pe == e:
                 return arr[i]

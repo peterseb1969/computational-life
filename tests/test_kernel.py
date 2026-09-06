@@ -105,10 +105,36 @@ def test_replay_exactness():
     print("ok  replay matches checkpoints")
 
 
+def test_hashmap_matches_dict():
+    from bff_hash import HashMap
+    rng = np.random.default_rng(0)
+    ref, hm = {}, HashMap(1 << 12)
+    for _ in range(30):
+        k = rng.integers(0, 2 ** 63, 4000, dtype=np.int64).astype(np.uint64)
+        v = rng.integers(0, 2 ** 40, 4000, dtype=np.int64)
+        hm.insert(k, v)
+        ref.update(zip(k.tolist(), v.tolist()))
+        allk = np.array(list(ref), dtype=np.uint64)
+        dk = allk[rng.random(allk.size) < 0.3]
+        exp = np.array([ref[x] for x in dk.tolist()], dtype=np.int64)
+        exp[::5] += 1                                        # wrong expected value: must not delete
+        hm.delete(dk, exp)
+        for x, e in zip(dk.tolist(), exp.tolist()):
+            if ref[x] == e:
+                del ref[x]
+        assert len(hm) == len(ref)
+        probe = np.concatenate([allk[:1000], rng.integers(0, 2 ** 63, 300, dtype=np.int64).astype(np.uint64)])
+        assert np.array_equal(hm.get(probe), np.array([ref.get(x, -1) for x in probe.tolist()], dtype=np.int64))
+    k, v = hm.items()
+    assert len(k) == len(ref) and all(ref[x] == y for x, y in zip(k.tolist(), v.tolist()))
+    print(f"ok  hashmap == dict ({len(ref)} entries, capacity {hm.capacity()})")
+
+
 if __name__ == '__main__':
     import io, contextlib
     test_interpreter_matches_reference()
     test_selfrep_fixtures()
+    test_hashmap_matches_dict()
     with contextlib.redirect_stdout(io.StringIO()):
         test_replay_exactness()
     print("ok  replay matches checkpoints")
