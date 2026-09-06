@@ -180,6 +180,10 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         cascade_depth = cascade_depth if cascade_depth is not None else meta.get('cascade_depth', DEFAULT_CASCADE_DEPTH)
         cascade_max = cascade_max if cascade_max is not None else meta.get('cascade_max', DEFAULT_CASCADE_MAX)
         resume_note = {'from': ckpt, 'epoch': start_epoch, 'time': _now()}
+        # the run is live again: its previous ending goes into the resume history
+        for k in ('finished', 'stop_triggered', 'last_epoch'):
+            if k in meta:
+                resume_note['previous_' + k] = meta.pop(k)
         if mutation_changed:
             # an experiment on the old soup, not a continuation: the trajectory diverges from here
             resume_note['mutation_prob_changed'] = {'from': old_mutation, 'to': mutation_prob}

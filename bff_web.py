@@ -82,6 +82,8 @@ def run_state(rd, meta):
         age = time.time() - os.path.getmtime(rd.log_path)
     except OSError:
         age = None
+    if age is not None and age < 60:          # the log is being written: running, whatever the flags say
+        return {'state': 'running', 'reason': None, 'log_age_s': age}
     if meta.get('finished'):
         st = meta.get('stop_triggered')
         reason = st['reason'] if st else f"reached the epoch cap ({meta.get('max_epochs')})"
