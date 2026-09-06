@@ -105,6 +105,14 @@ def host_info():
             'python': platform.python_version()}
 
 
+def probability(text):
+    """Argument type for rates: a float, or a fraction such as 1/4096."""
+    if '/' in text:
+        num, den = text.split('/', 1)
+        return float(num) / float(den)
+    return float(text)
+
+
 def protocol_name(num_programs, max_steps, mutation_prob, heads=False):
     """Canonical label of the experimental setup, so runs can be grouped for statistics."""
     size = f"{num_programs // 1024}k" if num_programs % 1024 == 0 else str(num_programs)
@@ -472,7 +480,7 @@ def main(argv=None):
                         "(explicit flags win)")
     g.add_argument("--heads", action="store_true",
                    help="the paper's 'bff' variant: the first two tape bytes set the head positions, execution starts at byte 2")
-    g.add_argument("--mutation-prob", type=float, default=None,
+    g.add_argument("--mutation-prob", type=probability, default=None,
                    help="per-byte mutation probability per epoch (default 0; paper 1/4096 = 0.000244). "
                         "May be given on resume to change the rate from that epoch on (an experiment on the old soup)")
     g.add_argument("--max-steps", type=int, default=None,
