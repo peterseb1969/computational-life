@@ -128,6 +128,19 @@ def test_hashmap_matches_dict():
     k, v = hm.items()
     assert len(k) == len(ref) and all(ref[x] == y for x, y in zip(k.tolist(), v.tolist()))
     print(f"ok  hashmap == dict ({len(ref)} entries, capacity {hm.capacity()})")
+    # churn: constant live size with heavy insert/delete traffic must not grow the table
+    hm = HashMap(1 << 12)
+    caps = set()
+    window = []
+    for e in range(400):
+        k = rng.integers(0, 2 ** 63, 2000, dtype=np.int64).astype(np.uint64)
+        hm.insert(k, np.full(2000, e, dtype=np.int64))
+        window.append(k)
+        if len(window) > 16:
+            hm.delete(window.pop(0))
+        caps.add(hm.capacity())
+    assert len(hm) == 16 * 2000 and max(caps) <= 1 << 18, (len(hm), sorted(caps))
+    print(f"ok  hashmap capacity bounded under churn (max {max(caps)})")
 
 
 if __name__ == '__main__':

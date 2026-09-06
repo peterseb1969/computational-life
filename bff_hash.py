@@ -124,10 +124,12 @@ class HashMap:
     def capacity(self):
         return int(self.tk.shape[0])
 
-    def _rebuild(self, min_cap):
+    def _rebuild(self, incoming):
+        """Rebuild sized from the LIVE entries (tombstones are dropped): capacity stays
+        proportional to what is actually stored, however many deletions happen."""
         k, v = self.items()
         cap = 1 << 10
-        while cap < min_cap:
+        while cap * 6 < (self.size + incoming) * 10 * 2:      # load factor <= 0.3 after the rebuild
             cap <<= 1
         self._alloc(cap)
         if k.size:
@@ -139,8 +141,8 @@ class HashMap:
         vals = np.ascontiguousarray(vals, dtype=np.int64)
         if keys.size == 0:
             return 0
-        if (self.used + keys.size) * 10 > self.tk.shape[0] * 6:      # keep load factor below 0.6
-            self._rebuild(max(2 * self.tk.shape[0], 2 * (self.size + keys.size)))
+        if (self.used + keys.size) * 10 > self.tk.shape[0] * 6:      # live + tombstones above 0.6: rebuild
+            self._rebuild(keys.size)
         new = _insert(keys, vals, self.tk, self.tv, self.ts)
         self.used += new
         self.size += new
