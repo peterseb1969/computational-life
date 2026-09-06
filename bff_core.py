@@ -360,6 +360,36 @@ def unique_counts(hashes):
     return uniq[:k], first[:k], counts[:k]
 
 
+@njit(cache=True)
+def key_arrays(rows, is_cmd, out_keys, out_lens):
+    """Instruction bytes of each row, left-aligned in out_keys (n, TAPE_SIZE), with their lengths."""
+    for i in range(rows.shape[0]):
+        n = 0
+        for j in range(rows.shape[1]):
+            b = rows[i, j]
+            if is_cmd[b]:
+                out_keys[i, n] = b
+                n += 1
+        out_lens[i] = n
+
+
+def near_variants(rows, query_key, max_dist):
+    """
+    Indices of rows whose instruction string lies within max_dist edits of query_key or of its
+    reverse (rows: (n, 64) uint8 programs, one per species). Vectorised over all species.
+    """
+    keys = np.zeros((rows.shape[0], TAPE_SIZE), dtype=np.uint8)
+    lens = np.empty(rows.shape[0], dtype=np.int32)
+    key_arrays(rows, IS_CMD, keys, lens)
+    hit = np.zeros(rows.shape[0], dtype=np.bool_)
+    dist = np.empty(rows.shape[0], dtype=np.int32)
+    for q in (query_key, query_key[::-1]):
+        qa = np.frombuffer(q.encode('ascii'), dtype=np.uint8)
+        batch_levenshtein(keys, lens, qa, qa.size, max_dist, dist)
+        hit |= dist <= max_dist
+    return np.flatnonzero(hit)
+
+
 def compute_keys(soup):
     """Return (hashes uint64[n], lengths int32[n]) for a (n, 64) soup."""
     n = soup.shape[0]

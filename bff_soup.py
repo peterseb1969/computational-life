@@ -406,30 +406,29 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 scores = core.selfrep_test(soup[first_idx[cand]], seed=epoch, max_steps=max_steps, heads_init=heads)
                 hits = np.flatnonzero(scores >= SELFREP_THRESHOLD)
                 if hits.size:
-                    cand_keys = [core.program_key(soup[first_idx[i]]) for i in cand]
-                    # the replicators, plus their near-variants among the tested species: the debris a
-                    # culled lineage would re-form from (counted separately, not towards the quota)
-                    doomed = {int(k): 'replicator' for k in hits}
+                    # the replicators, plus every species in the soup within a few edits of one (the
+                    # debris a culled lineage re-forms from), the latter counted separately
+                    doomed = {}
                     for k in hits:
-                        d = core.variant_distance(cand_keys[k])
-                        for j in range(len(cand)):
-                            if j not in doomed and core._near(cand_keys[j], cand_keys[k], d):
-                                doomed[j] = 'variant'
-                    for k, kind in sorted(doomed.items()):
                         i = cand[k]
+                        key = core.program_key(soup[first_idx[i]])
+                        doomed[int(i)] = (key, int(scores[k]), 'replicator')
+                        for j in core.near_variants(soup[first_idx], key, core.variant_distance(key)).tolist():
+                            if j not in doomed:
+                                doomed[j] = (core.program_key(soup[first_idx[j]]), -1, 'variant')
+                    for n_done, (i, (key, score, kind)) in enumerate(sorted(doomed.items())):
                         slots = np.flatnonzero(cur_hash == uniq[i])
-                        rng = np.random.default_rng([int(seed), 3, int(epoch), int(k)])
+                        rng = np.random.default_rng([int(seed), 3, int(epoch), n_done])
                         if cull_dist is None:
                             soup[slots] = rng.integers(0, 256, (slots.size, TAPE_SIZE), dtype=np.uint8)
                         else:
                             soup[slots] = rng.choice(256, size=(slots.size, TAPE_SIZE), p=cull_dist).astype(np.uint8)
-                        event = {'epoch': epoch, 'key': cand_keys[k], 'count': int(slots.size), 'score': int(scores[k]),
-                                 'kind': kind}
-                        culls.append(event)
+                        culls.append({'epoch': epoch, 'key': key, 'count': int(slots.size), 'score': score, 'kind': kind})
                         if kind == 'replicator':
                             n_rep = sum(1 for c in culls if c['kind'] == 'replicator')
-                            print(f"*** cull {n_rep}: epoch {epoch}, {event['key']!r} ({event['count']} copies, score "
-                                  f"{event['score']}) replaced by random programs ***", flush=True)
+                            n_var = sum(1 for _, (_, _, kd) in doomed.items() if kd == 'variant')
+                            print(f"*** cull {n_rep}: epoch {epoch}, {key!r} ({slots.size} copies, score {score}) "
+                                  f"replaced by random programs, with {n_var} near-variant species ***", flush=True)
                 if hits.size:
                     cur_hash, cur_len = core.compute_keys(soup)
                     meta['culls'] = culls
