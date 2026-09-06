@@ -133,6 +133,21 @@ $('#ov-all').addEventListener('click', () => { state.ovMode = 'all'; loadOvervie
 setInterval(() => {
   if ($('#ov-auto').checked && $('#tab-overview').classList.contains('active') && state.info && state.info.state && state.info.state.state !== 'finished') loadOverview();
 }, 6000);
+// the header (state badge, epoch, emergence) and the run list refresh on every tab
+async function refreshHeader() {
+  if (!state.run || (state.info && state.info.state && state.info.state.state === 'finished' && !$('#tab-overview').classList.contains('active'))) return;
+  try {
+    const info = await api('info');
+    state.info = info;
+    $('#run-status').innerHTML = statusText(info);
+    const opt = $('#run-select').querySelector(`option[value="${CSS.escape(state.run)}"]`);
+    if (opt) {
+      const tag = { running: ' ▶ running', stalled: ' ⚠ stalled', finished: ' ■ finished' }[info.state ? info.state.state : 'running'];
+      opt.textContent = `${state.run} — ${fmt(info.meta.num_programs)} programs, epoch ${fmt(info.last_epoch)}${tag}`;
+    }
+  } catch (e) { /* server away: keep the last state */ }
+}
+setInterval(refreshHeader, 10000);
 
 // ---------------------------------------------------------------- species
 async function loadSpecies() {
