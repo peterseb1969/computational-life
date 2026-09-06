@@ -53,7 +53,8 @@ function showTab(name) {
 async function loadRuns() {
   const runs = await api('runs');
   const sel = $('#run-select');
-  sel.innerHTML = runs.map((r) => `<option value="${esc(r.name)}">${esc(r.name)} — ${fmt(r.num_programs)} programs, epoch ${fmt(r.last_epoch)}${r.finished ? '' : ' (running)'}</option>`).join('');
+  const tag = (r) => ({ running: ' ▶ running', stalled: ' ⚠ stalled', finished: ' ■ finished' }[r.state ? r.state.state : 'running']);
+  sel.innerHTML = runs.map((r) => `<option value="${esc(r.name)}">${esc(r.name)} — ${fmt(r.num_programs)} programs, epoch ${fmt(r.last_epoch)}${tag(r)}</option>`).join('');
   if (!runs.length) { toast('No runs found in the runs directory', true); return; }
   const want = hashParams().run;
   const pick = runs.find((r) => r.name === want) || runs.reduce((a, b) => (b.created > a.created ? b : a));
@@ -79,7 +80,7 @@ async function selectRun(name) {
   setHash({ run: name });
   state.info = await api('info');
   const m = state.info.meta;
-  $('#run-status').textContent = `${fmt(m.num_programs)} programs · seed ${m.seed} · epoch ${fmt(state.info.last_epoch)} · ${fmt(state.info.recorded_species)} recorded species`;
+  $('#run-status').innerHTML = statusText(state.info);
   $('#ov-meta').textContent = JSON.stringify(m, null, 2);
   state.ovMode = 'all';
   loadOverview();
@@ -115,13 +116,22 @@ async function loadOverview() {
   line('ov-species', d.unique_species, 'Unique species (distinct keys)', cssVar('--pc'));
   line('ov-share', d.top_share.map((v) => 100 * v), 'Top species share (%)', cssVar('--h0'));
   line('ov-selfrep', d.selfrep_slots.map((v) => (v < 0 ? null : v)), 'Slots holding a self-replicator (tested every 256 epochs)', cssVar('--h1'));
-  $('#run-status').textContent = `${fmt(info.meta.num_programs)} programs · seed ${info.meta.seed} · epoch ${fmt(last)} · ${fmt(info.recorded_species)} recorded species`;
+  $('#run-status').innerHTML = statusText(info);
+}
+function statusText(info) {
+  const m = info.meta, s = info.state || { state: 'running' };
+  const badge = { running: '<span class="state running">▶ running</span>', stalled: '<span class="state stalled">⚠ stalled</span>', finished: '<span class="state finished">■ finished</span>' }[s.state];
+  let text = `${badge} ${fmt(m.num_programs)} programs · seed ${esc(m.seed_label || m.seed)} · epoch ${fmt(info.last_epoch)} · ${fmt(info.recorded_species)} recorded species`;
+  if (m.emergence_epoch != null) text += ` · <b>emergence at ${fmt(m.emergence_epoch)}</b>`;
+  if (s.state === 'finished') text += ` · stopped: ${esc(s.reason)}`;
+  if (s.state === 'stalled') text += ` · ${esc(s.reason)}`;
+  return text;
 }
 $('#ov-apply').addEventListener('click', () => { state.ovMode = 'range'; loadOverview(); });
 $('#ov-last').addEventListener('click', () => { state.ovMode = 'last'; loadOverview(); });
 $('#ov-all').addEventListener('click', () => { state.ovMode = 'all'; loadOverview(); });
 setInterval(() => {
-  if ($('#ov-auto').checked && $('#tab-overview').classList.contains('active') && state.info && !state.info.meta.finished) loadOverview();
+  if ($('#ov-auto').checked && $('#tab-overview').classList.contains('active') && state.info && state.info.state && state.info.state.state !== 'finished') loadOverview();
 }, 6000);
 
 // ---------------------------------------------------------------- species

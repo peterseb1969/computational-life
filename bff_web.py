@@ -51,7 +51,7 @@ class RunRegistry:
                     out.append({'name': name, 'num_programs': meta.get('num_programs'),
                                 'seed': meta.get('seed'), 'created': meta.get('created'),
                                 'last_epoch': self.get(name).last_epoch(),
-                                'finished': meta.get('finished')})
+                                'finished': meta.get('finished'), 'state': run_state(rd, meta)})
         return out
 
     def get(self, name):
@@ -74,6 +74,21 @@ class RunRegistry:
 
 
 REGISTRY = None
+
+
+def run_state(rd, meta):
+    """finished (with reason) / running / stalled, from the finish flag and the log's age."""
+    try:
+        age = time.time() - os.path.getmtime(rd.log_path)
+    except OSError:
+        age = None
+    if meta.get('finished'):
+        st = meta.get('stop_triggered')
+        reason = st['reason'] if st else f"reached the epoch cap ({meta.get('max_epochs')})"
+        return {'state': 'finished', 'reason': reason, 'epoch': meta.get('last_epoch'), 'log_age_s': age}
+    if age is not None and age > 180:
+        return {'state': 'stalled', 'reason': f"no log update for {age / 60:.0f} minutes (crashed or paused?)", 'log_age_s': age}
+    return {'state': 'running', 'reason': None, 'log_age_s': age}
 
 
 def safe_ints(obj):
@@ -101,7 +116,7 @@ def api(path, q):
 
     if what == 'info':
         run.reload_meta()
-        return {'name': name, 'meta': run.meta, 'last_epoch': run.last_epoch(),
+        return {'name': name, 'meta': run.meta, 'last_epoch': run.last_epoch(), 'state': run_state(run.rd, run.meta),
                 'checkpoints': [e for e, _ in run.checkpoints()],
                 'recorded_species': run.db.execute("SELECT COUNT(*) FROM species").fetchone()[0],
                 'change_records': int(run.changes().shape[0])}
