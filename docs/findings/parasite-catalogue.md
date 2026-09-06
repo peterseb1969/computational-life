@@ -100,6 +100,49 @@ Not a parasite in the strict sense: preceding the host it destroys the host but 
 
 ---
 
+## 4. MacBook `-b`: `{<[}<,,],,<}[<{` and `{<[}<,,,,<}[<{{`, a standoff
+
+*MacBook, run `ps-macbook-pro-20260906-b`, 100,000 epochs. Emergence 17.9k; parasite crash by 20k; recovery from 22k; host and parasite coexisting from 40k to the end.*
+
+**Round one, epochs 17.9k to 20k.** The host `{<[}<,,],,<}[<{` (15 instructions, palindrome, score 63) reached 3,700 slots at 18.4k; within 250 epochs its loopless variants, `],,` turned into `,,,,`, outnumbered it. Both then crashed together, the host to about 500 slots by 20k, the parasites to 0.2 percent, because with hosts that scarce the parasites had nothing to reproduce from. Checkpoint 18,432:
+
+Host, bytes to paste:
+
+```
+7bedd83d3cd8d81bd8d61b5b047dd83c20bd46a42c3a2c48a4244634bd44205d2044bd344624a4482c3a2ca446bd203cd87d045b1bd6d81bd8d83c3d7bd8d8d8
+```
+
+Parasite `{<[}<,,,,<}[<{{` (15 instructions, score 0), bytes to paste:
+
+```
+3d7b3bcded3cd8d81bd8d61b5b047dd83c20bd46a42c3a2c48a4244634bd44202c3a2ca446bd203cd87d045b1bd6d81bd8d83c3dd8edd87bedd67bd6edd6edd6
+```
+
+| Tape | Outcome |
+|---|---|
+| host, parasite | host, host: 100% |
+| parasite, host | parasite, parasite: 98% |
+| bg, host | both halves become the parasite: 60%; host survives: about 25% |
+| host, bg | host, host: 100% |
+
+**Round two, epochs 22k to 100k.** The survivors were the host with one extra `.`, `{<[}<,,],,<}[<.{` (16 instructions, score 63), and its mirror image `{.<[}<,,],,<}[<{`; not a palindrome, so copies alternate between the two forms. It is exactly as vulnerable as the round-one host: the parasite hijacks it 100 percent of the time and background damages it in three encounters out of four. It grew from 1,000 slots to 19,000 over 30,000 epochs and then stayed: from 40k to 100k the replicators wandered between 0.6 and 15 percent of the soup, the parasite load in lockstep at about 2.7 times the host count, the background never below 22,000 distinct keys. No trend, no cycle, no resolution in 60,000 epochs. Checkpoint 99,999:
+
+Host, bytes to paste:
+
+```
+7b3cd8d81bd8d61b5b047dd83c20bd46a42c3a2c48a4244634bd44205d2044bd344624a4482c3a2ca446bd203cd87d045b1bd6d81bd8d83c3dd82e7bd6d6d6d6
+```
+
+Parasite `{<[}<,,,,<}[{{{` (15 instructions, score 0), bytes to paste:
+
+```
+7b3cd8d81bd8d61b5b047dd83c20bd46a42c3a2c48a4244634bd4420a424462044bd344624a4482c3a2ca446bd203cd87d045b1bd6d8d6d87b7b7bd6d6d6d6d6
+```
+
+Why this pair coexists where case 1 ended in extinction: the host never swept the background. In macbook-1 the host had converted 99 percent of the soup into copies of itself before the parasite rose, leaving the parasite a soup of nothing but hosts. Here the round-two host started from a thousand slots with parasites already present and was capped early, so the background stayed the majority and kept destroying parasites and hosts alike. Host beats background, parasite beats host, background beats both when it runs first: a three-way standoff that wanders instead of resolving.
+
+---
+
 ## Not a parasite: run 45's `{<[[>.,,{,,.>[[<{`
 
 The host `{<[[>.,,{]{,,.>[[<{` (19 instructions, palindrome, score 64, 20% of the soup at 60k) is accompanied by loopless variants such as `{<[[>.,,{,,.>[[<{` at 1 to 2%. Preceding the host, this variant destroys both halves in 94% of cases and is never copied; preceding background it destroys itself in 90%. A broken copy that neither reproduces nor spreads, kept at a low level only by being produced. Listed here as the counterexample: not every loopless variant is a parasite.
@@ -117,4 +160,5 @@ Host bytes, for comparison:
 - Every parasite is the host minus its loop-closing bracket, made continuously by hosts that end up in the second half of a tape behind a background program: the fall-through of the program counter runs the host's loop with foreign head positions and the host copies its partner over its own tail.
 - The parasite's straight-line prefix reproduces the host's head configuration and its open `[` hands execution to the partner, so a following host copies the parasite over itself.
 - Whoever runs first wins the host-parasite encounter; the difference is made by the background, which destroys hosts and spares parasites.
-- The outcome for the soup was, in both confirmed cases, extinction of the host, then of the parasite, then a desert without the instructions to build a new loop.
+- The outcome depends on how far the host got before the parasite rose. A host that swept the background first (cases 1 and 2) was then eaten by its parasite, which starved in turn and left a desert. A host capped early by its parasite while the background was still the majority (case 4, and the unresolved coexistences in runs 46, mini `-d` and pi-1) settled into a standoff that 60,000 further epochs did not resolve.
+- Across the thirteen emergences seen so far, clean takeovers are the minority: five takeovers, two parasite-driven extinctions, five coexistences, one fade.
