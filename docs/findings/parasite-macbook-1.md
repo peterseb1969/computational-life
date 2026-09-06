@@ -4,7 +4,7 @@
 
 ## Summary
 
-After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and took over the soup within a thousand epochs. Thirty-five epochs after its birth, a copy error produced a variant that had lost the two closing brackets of its copy loop. That variant cannot copy anything, yet it reproduces: its first instructions leave the heads in the positions the replicator's loop expects, and its unmatched opening bracket lets execution run on into the partner's code. When the partner is the replicator, the replicator's own loop copies the parasite over the replicator. The parasite also survives encounters that destroy the replicator. Over 17,000 epochs it drove the replicator to extinction, held 99 percent of the soup for a moment, and then, with no host left to reproduce it, eroded away. What remained was not the random soup of the beginning but a desert: debris of the parasite, converging rather than diversifying, without a single closing bracket or `+`/`-` left to build a new loop from. By epoch 150,000 no new life had appeared; instead the debris underwent a second runaway into a frozen crystal of `>`, `,` and `{` bytes in which nothing changes any more. One seed, one complete arc: emergence, takeover, parasitism, host extinction, parasite extinction, desert, crystal.
+After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and took over the soup within a thousand epochs. Thirty-five epochs after its birth, a copy error produced a variant that had lost the two closing brackets of its copy loop. That variant cannot copy anything, yet it reproduces: its first instructions leave the heads in the positions the replicator's loop expects, and its unmatched opening bracket lets execution run on into the partner's code. When the partner is the replicator, the replicator's own loop copies the parasite over the replicator. The parasite also survives encounters that destroy the replicator. Over 17,000 epochs it drove the replicator to extinction, held 99 percent of the soup for a moment, and then, with no host left to reproduce it, eroded away. What remained was not the random soup of the beginning but a desert: debris of the parasite, converging rather than diversifying, without a single closing bracket or `+`/`-` left to build a new loop from. By epoch 150,000 no new life had appeared; instead the debris underwent a second runaway into a frozen crystal of `>`, `,` and `{` bytes in which nothing changes any more. One seed, one complete arc: emergence, takeover, parasitism, host extinction, parasite extinction, desert, crystal. A control experiment added later shows that the parasite carries no special ability: almost any program that runs ahead of the host makes the host erase its own loop, and the parasite is simply the host's most common self-inflicted wound, copied exactly.
 
 ## Timeline
 
@@ -83,7 +83,26 @@ Measured on 300 random instances of each kind and a sample of the remaining back
 | replicator | replicator | replicator, 100% |
 | parasite | parasite | parasite, 100% |
 
-The fourth row is where parasites come from. A replicator in the second half behind a background program is entered by fall-through with the heads wherever the background left them; its loop then copies the background over its own bytes until it hits a zero, and four times in five what remains is exactly the loopless prefix. The same fall-through that lets the parasite hijack the host also manufactures new parasites from hosts, continuously.
+The fourth row is where parasites come from. A replicator in the second half behind a background program is entered by fall-through with the heads wherever the background left them; its loop then copies the background over its own bytes until it hits a zero, and four times in five what remains is exactly the loopless prefix. The same fall-through that lets the parasite hijack the host also manufactures new parasites from hosts, continuously. The control experiment below shows that this is not particular to the parasite: nearly any program ahead of the host does the same.
+
+## The control: what makes a parasite, and what does not
+
+Since this run, the same test has been made with the hosts of three other runs (46, 45 and the MacBook's `-b`) and with random programs instead of parasites. Two results reframe the story.
+
+First, every parasite and killer found in any run converts every host of every other run into a loopless variant, 100 percent of pairings across all sixteen combinations. Second, so does almost anything else. Random programs placed before this run's host, 100 pairings each:
+
+| Partner before the host | Host turned loopless | Host intact |
+|---|---|---|
+| all zeros | 0% | 100% |
+| random bytes | 72% | 19% |
+| random bytes with an unmatched `[` | 83% | 2% |
+| random bytes containing no bracket at all | 91% | 3% |
+
+The same numbers, within a few percent, for the other three hosts. A host in the second half of a tape behind any program that moves a head before falling through is entered with displaced heads; its own loop then copies the partner's bytes over its own tail, where its closing brackets sit. Zeros are harmless only because no instruction runs before the fall-through.
+
+So the parasite carries no trick. It converts hosts because it is a non-zero program that runs first, like the random background does, and it is abundant because hosts manufacture it continuously, not because it is good at anything. The one property that sets a full parasite apart from the background is that the host copies it *exactly*: its instruction bytes lie inside the region the host's loop overwrites, so a single sequence accumulates a count where a random partner leaves a different hybrid each time. Even that inheritance is done by the host.
+
+The finding, then, is about the host: a replicator of this kind cannot withstand its own fragments, nor much else, whenever it is not the one running first. Its loop is a copy machine whose source and destination are set by whoever ran before it, and it will as readily erase its own loop closer as write itself over a partner. Takeover happens when the host reaches a share at which most of its second-half encounters are with other hosts, which are the only partners that leave it intact. A host outnumbered by its own debris before that point stays outnumbered.
 
 ## Why the host loses
 
