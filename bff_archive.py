@@ -301,7 +301,7 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
         'archived': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'params': {k: meta.get(k) for k in ('num_programs', 'tape_size', 'seed', 'seed_label', 'mutation_prob', 'max_steps', 'heads',
                                              'checkpoint_interval', 'lineage_min_len', 'promote_count', 'created',
-                                             'finished', 'resumes', 'seed_programs')},
+                                             'finished', 'resumes', 'seed_programs', 'init_dist')},
         'events': events,
         'final': {'epoch': last_epoch, 'higher_entropy': float(log['higher_entropy'][-1]), 'bpb': float(log['bpb'][-1]),
                   'unique_species': int(log['unique_species'][-1]), 'ops_per_pair': float(log['ops_per_pair'][-1]),
