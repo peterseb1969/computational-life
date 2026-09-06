@@ -22,7 +22,9 @@ from numba import njit, prange  # noqa: F401
 TAPE_SIZE = 64
 COMBINED_SIZE = 2 * TAPE_SIZE
 DEFAULT_MAX_STEPS = 32768        # step budget per tape evaluation (paper/cubff use 8192)
-SELFREP_THRESHOLD = 5            # cubff kSelfrepThreshold
+SELFREP_THRESHOLD = 20           # stable bytes (of 64) for a species to count as a self-replicator; cubff used 5,
+                                 # the 2026 BFF paper 48 and reports no change above about 20
+SELFREP_STRICT = 48              # the paper's threshold, logged and archived alongside
 CHECKPOINT_MAGIC_V1 = b'BFFS'
 
 

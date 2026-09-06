@@ -125,7 +125,13 @@ async function loadOverview() {
   line('ov-ops', d.ops_per_pair, 'Instructions executed per tape', cssVar('--written'));
   line('ov-species', d.unique_species, 'Unique species (distinct keys)', cssVar('--pc'));
   line('ov-share', d.top_share.map((v) => 100 * v), 'Top species share (%)', cssVar('--h0'));
-  line('ov-selfrep', d.selfrep_slots.map((v) => (v < 0 ? null : v)), 'Slots holding a self-replicator (tested every 256 epochs)', cssVar('--h1'));
+  {
+    const clean = (a) => (a || []).map((v) => (v < 0 ? null : v));
+    const traces = [{ x, y: clean(d.selfrep_slots), type: 'scatter', mode: 'lines', name: 'score ≥ 20', line: { color: cssVar('--h1'), width: 1.5 }, hovertemplate: '%{y}<extra>≥ 20</extra>' }];
+    if (d.selfrep_strict_slots && d.selfrep_strict_slots.some((v) => v >= 0))
+      traces.push({ x, y: clean(d.selfrep_strict_slots), type: 'scatter', mode: 'lines', name: 'score ≥ 48', line: { color: cssVar('--h0'), width: 1.5, dash: 'dot' }, hovertemplate: '%{y}<extra>≥ 48</extra>' });
+    Plotly.react('ov-selfrep', traces, plotLayout('Slots holding a self-replicator (score ≥ 20 solid, ≥ 48 dotted)', { shapes, showlegend: false }), plotConfig);
+  }
   $('#run-status').innerHTML = statusText(info);
 }
 function statusText(info) {

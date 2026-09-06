@@ -97,7 +97,7 @@ Every run writes to `runs/<seed>` (or `--run-dir`):
 | Path | Content |
 |------|---------|
 | `meta.json` | All parameters, resume history, stop-condition events, recording statistics |
-| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots, parasite load (slots held by non-replicating near-variants of a replicator, whether they hijack, kill or are inert; `bff_query.py variants` separates them), elapsed time |
+| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots (score ≥ 20 of 64 stable bytes), parasite load (slots held by non-replicating near-variants of a replicator, whether they hijack, kill or are inert; `bff_query.py variants` separates them), self-replicating slots under the 2026 BFF paper's stricter score ≥ 48, elapsed time |
 | `checkpoints/*.dat` | The soup every `--checkpoint-interval` epochs (JSON header + raw bytes). File `0` is the initial soup, file `e` the soup after epoch `e`. |
 | `changes.bin` | Change records (epoch, slot, partner slot, new key hash) for slots that changed to a recorded species, plus every slot at epoch 0 |
 | `species.db` | SQLite: recorded species with their birth event, key texts of snapshot species, species counts every `--species-interval` epochs, self-replication scores |

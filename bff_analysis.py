@@ -51,7 +51,7 @@ def top_programs(soup, top_n=10, selfrep=True, max_steps=core.DEFAULT_MAX_STEPS,
 
 def print_top_programs(soup, top_n=10, selfrep=True, max_steps=core.DEFAULT_MAX_STEPS, heads=False):
     rows = top_programs(soup, top_n, selfrep, max_steps, heads)
-    print(f"\nTop {top_n} programs" + (" (SelfRep = stable bytes over 13 trials; >=5 replicates)" if selfrep else "") + ":")
+    print(f"\nTop {top_n} programs" + (" (SelfRep = stable bytes over 13 trials; >=20 replicates, >=48 strict)" if selfrep else "") + ":")
     print(f"{'Count':>7} {'Share':>7} {'Len':>4} {'SelfRep':>8}  Key")
     for r in rows:
         display = r['key'] if r['key'] else "(empty)"

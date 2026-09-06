@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 import bff_core as core
-from bff_core import TAPE_SIZE, DEFAULT_MAX_STEPS, SELFREP_THRESHOLD
+from bff_core import TAPE_SIZE, DEFAULT_MAX_STEPS, SELFREP_THRESHOLD, SELFREP_STRICT
 
 SPIKE_TEST_SHARE = 0.01     # a species reaching this share (and doubling since the last test) is tested at once
 SPIKE_MIN_LEN = 5           # ... if it has at least this many instructions
@@ -46,7 +46,8 @@ from bff_archive import build_and_save, print_summary  # noqa: E402
 
 LOG_COLUMNS = ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb',
                'ops_per_pair', 'unique_species', 'top_share', 'top_key_len',
-               'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'parasite_slots', 'elapsed_s']
+               'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'parasite_slots',
+               'selfrep_strict_slots', 'elapsed_s']
 
 
 def _now():
@@ -58,8 +59,9 @@ class OutcomeDetector:
     Decides when a statistics run has told its story. Fed the self-replication count
     after every test (every --selfrep-interval epochs):
       emergence   self-replicators hold >= 1% of the soup (recorded, not a stop)
-      takeover    >= 50% of the soup at 8 consecutive tests after emergence, with no growing
-                  parasite load (non-replicating near-variants of a replicator below 2% of the soup)
+      takeover    >= 50% of the soup at 8 consecutive tests after emergence, with no rising
+                  parasite load: the non-replicating near-variants of a replicator may not grow by more
+                  than 2% of the soup over the streak (a constant load, as mutation produces, is fine)
       extinction  no self-replicator at 4 consecutive tests after emergence (parasites, fading)
       unresolved  32768 epochs after emergence without either (coexistence)
     Returns the reason string when the run should stop, else None.
@@ -71,6 +73,7 @@ class OutcomeDetector:
         self.emerged = None
         self.high = 0
         self.zero = 0
+        self.parasite_base = 0
 
     def update(self, epoch, selfrep_slots, parasite_slots=0):
         if selfrep_slots < 0:
@@ -79,7 +82,14 @@ class OutcomeDetector:
             if selfrep_slots >= 0.01 * self.n:
                 self.emerged = epoch
             return None
-        self.high = self.high + 1 if (selfrep_slots >= 0.5 * self.n and parasite_slots < 0.02 * self.n) else 0
+        if selfrep_slots < 0.5 * self.n:
+            self.high = 0
+        elif self.high and parasite_slots > self.parasite_base + 0.02 * self.n:
+            self.high, self.parasite_base = 1, parasite_slots     # the load is rising: start the streak over
+        else:
+            if self.high == 0:
+                self.parasite_base = parasite_slots
+            self.high += 1
         self.zero = self.zero + 1 if selfrep_slots == 0 else 0
         if self.high >= self.takeover_tests:
             return f"takeover: self-replicators in half the soup at {self.high} consecutive tests (emerged at epoch {self.emerged})"
@@ -182,9 +192,9 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         mutation_prob = mutation_prob if mutation_prob is not None else old_mutation
         max_steps = ck.get('max_steps', DEFAULT_MAX_STEPS)
         heads = bool(ck.get('heads', False))
-        init_dist = meta.get('init_dist', 'uniform')     # the initial soup is history; the flag is ignored on resume
         start_epoch = ck['epoch'] + 1
         meta = rd.read_meta() if rd.exists() else {}
+        init_dist = meta.get('init_dist', 'uniform')     # the initial soup is history; the flag is ignored on resume
         seed_label = meta.get('seed_label', str(seed))
         # recording settings must stay what they were for the run to remain consistent
         checkpoint_interval = meta.get('checkpoint_interval', checkpoint_interval)
@@ -308,14 +318,15 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     stop_at = None
     outcome = OutcomeDetector(num_programs) if stop_outcome else None
     selfrep_slots = -1
+    selfrep_strict_slots = -1
     tested_share = 0.0              # top share at the last self-replication test
     parasite_slots = -1
-    if resume_path:   # carry the last known self-replicator count across the resume
+    if resume_path:   # carry the last known self-replicator counts across the resume
         last = lineage.db.execute("SELECT MAX(epoch) FROM selfrep").fetchone()[0]
         if last is not None:
-            row = lineage.db.execute("SELECT COALESCE(SUM(count), 0) FROM selfrep WHERE score >= ? AND epoch = ?",
-                                     (SELFREP_THRESHOLD, last)).fetchone()
-            selfrep_slots = int(row[0])
+            q = "SELECT COALESCE(SUM(count), 0) FROM selfrep WHERE score >= ? AND epoch = ?"
+            selfrep_slots = int(lineage.db.execute(q, (SELFREP_THRESHOLD, last)).fetchone()[0])
+            selfrep_strict_slots = int(lineage.db.execute(q, (SELFREP_STRICT, last)).fetchone()[0])
     epoch = start_epoch - 1
     outcome_reason = None
     metrics = {'higher_entropy': float('nan'), 'bpb': float('nan'), 'h0': float('nan'),
@@ -384,6 +395,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 scores = core.selfrep_test(reps, seed=epoch, max_steps=max_steps, heads_init=heads)
                 lineage.record_selfrep(epoch, uniq[order], scores, counts[order])
                 selfrep_slots = int(counts[order][scores >= SELFREP_THRESHOLD].sum())
+                selfrep_strict_slots = int(counts[order][scores >= SELFREP_STRICT].sum())
                 parasite_slots, _ = core.parasite_load([core.program_key(p) for p in reps], counts[order], scores)
                 outcome_reason = outcome.update(epoch, selfrep_slots, parasite_slots) if outcome is not None else None
                 if outcome is not None and outcome.emerged == epoch:
@@ -400,7 +412,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             elapsed = time.time() - t0
             queue.append((f"{epoch},{{compressed}},{{nbytes}},{{higher_entropy:.6f}},{{h0:.6f}},{{bpb:.6f}},"
                           f"{ops.mean():.2f},{uniq.size},{top_share:.6f},{top_len},"
-                          f"{changed.size},{n_new},{n_prom},{selfrep_slots},{parasite_slots},{elapsed:.1f}\n", metrics_future))
+                          f"{changed.size},{n_new},{n_prom},{selfrep_slots},{parasite_slots},{selfrep_strict_slots},{elapsed:.1f}\n", metrics_future))
             finish_rows()
 
             # -- progress ----------------------------------------------------

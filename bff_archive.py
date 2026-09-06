@@ -186,6 +186,7 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
 
     # ---- events -----------------------------------------------------------
     sr = run.db.execute("SELECT MIN(epoch) FROM selfrep WHERE score >= ?", (core.SELFREP_THRESHOLD,)).fetchone()[0]
+    sr_strict = run.db.execute("SELECT MIN(epoch) FROM selfrep WHERE score >= ?", (core.SELFREP_STRICT,)).fetchone()[0]
     long_top = log['top_key_len'] >= run.min_len
     events = {
         'entropy_gt_1': first_epoch_where(ep, log['higher_entropy'], lambda v: v > 1),
@@ -195,6 +196,8 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
         'share_gt_5pct': first_epoch_where(ep, log['top_share'], lambda v: (v > 0.05) & long_top),
         'share_gt_20pct': first_epoch_where(ep, log['top_share'], lambda v: (v > 0.20) & long_top),
         'first_selfrep_epoch': sr,
+        'first_selfrep_strict_epoch': sr_strict,          # score >= 48, the 2026 BFF paper's threshold
+        'selfrep_threshold': core.SELFREP_THRESHOLD,
         'stop_triggered': meta.get('stop_triggered'),
         'last_epoch': last_epoch,
     }
@@ -258,6 +261,7 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
             'share': float(sum(end_winners[i]['share'] for i in members)),
             'selfrep_score': max(end_winners[i]['selfrep_score'] for i in members),
             'replicating_members': sum(1 for i in members if end_winners[i]['selfrep_score'] >= core.SELFREP_THRESHOLD),
+            'replicating_members_strict': sum(1 for i in members if end_winners[i]['selfrep_score'] >= core.SELFREP_STRICT),
             'profile': functional_profile(rep['program'], run.max_steps, heads=run.heads),
         }
         for i in members:
