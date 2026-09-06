@@ -4,7 +4,7 @@
 
 ## Summary
 
-After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and took over the soup within a thousand epochs. Thirty-five epochs after its birth, a copy error produced a variant that had lost the two closing brackets of its copy loop. That variant cannot copy anything, yet it reproduces: its first instructions leave the heads in the positions the replicator's loop expects, and its unmatched opening bracket lets execution run on into the partner's code. When the partner is the replicator, the replicator's own loop copies the parasite over the replicator. The parasite also survives encounters that destroy the replicator. Over 17,000 epochs it drove the replicator to extinction, held 99 percent of the soup for a moment, and then, with no host left to reproduce it, eroded away. What remained was not the random soup of the beginning but a desert: debris of the parasite, converging rather than diversifying, without a single closing bracket or `+`/`-` left to build a new loop from. By epoch 130,000 no new life had appeared. One seed, one complete ecological cycle: emergence, takeover, parasitism, host extinction, parasite extinction, and a soup that can no longer evolve.
+After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and took over the soup within a thousand epochs. Thirty-five epochs after its birth, a copy error produced a variant that had lost the two closing brackets of its copy loop. That variant cannot copy anything, yet it reproduces: its first instructions leave the heads in the positions the replicator's loop expects, and its unmatched opening bracket lets execution run on into the partner's code. When the partner is the replicator, the replicator's own loop copies the parasite over the replicator. The parasite also survives encounters that destroy the replicator. Over 17,000 epochs it drove the replicator to extinction, held 99 percent of the soup for a moment, and then, with no host left to reproduce it, eroded away. What remained was not the random soup of the beginning but a desert: debris of the parasite, converging rather than diversifying, without a single closing bracket or `+`/`-` left to build a new loop from. By epoch 150,000 no new life had appeared. One seed, one complete ecological cycle: emergence, takeover, parasitism, host extinction, parasite extinction, and a soup that can no longer evolve.
 
 ## Timeline
 
@@ -107,7 +107,7 @@ The paper ("Computational Life", Agüera y Arcas et al., 2024) reports no parasi
 
 ## Can life re-emerge from the remains? The desert
 
-The run was extended to 130,000 epochs to find out. No self-replicator appeared, and the soup shows why: it is not returning to the random state it started from.
+The run was extended to 150,000 epochs to find out. No self-replicator appeared, and the soup shows why: it is not returning to the random state it started from.
 
 | Epoch | Distinct keys | Entropy | Bits per byte | Key changes per epoch |
 |---|---|---|---|---|
