@@ -169,6 +169,10 @@ stop conditions (optional):
                         2048 epochs with parasite load below 2%), extinction (none for 1024 epochs) or
                         32768 unresolved epochs
   --stop-after N        Keep running N more epochs after a stop condition fires
+  --cull-replicators N  Origin-rate experiment: every --cull-interval epochs (default 4) test the most
+                        common long species, replace every copy of any self-replicator (and its near-variants)
+                        by fresh random programs from the run's initial distribution, stop after N removals.
+                        `bff_query.py culls <run>` lists the removals clustered into distinct origins
 ```
 
 ### Performance notes

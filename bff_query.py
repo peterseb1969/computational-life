@@ -642,6 +642,9 @@ def main(argv=None):
     s = sub.add_parser('info', help='run summary')
     s.add_argument('run')
 
+    s = sub.add_parser('culls', help='origin-rate experiment: the removed replicators, clustered into distinct origins')
+    s.add_argument('run')
+
     s = sub.add_parser('variants', help='split the non-replicating near-variants of the dominant replicator into hijackers, killers and debris')
     s.add_argument('run'); s.add_argument('--epoch', type=int, default=None, help='checkpoint at/below this epoch (default: latest)')
 
@@ -649,6 +652,46 @@ def main(argv=None):
     run = Run(a.run)
     t0 = time.time()
 
+    if a.cmd == 'culls':
+        from bff_archive import cluster_families
+        ev = [c for c in run.meta.get('culls', []) if c.get('kind', 'replicator') == 'replicator']
+        if not ev:
+            print("no replicators were removed in this run (was it started with --cull-replicators?)"); return
+        # one lineage: keys within 3 edits of each other, or sharing an innermost copy loop
+        keys = [c['key'] for c in ev]
+        loops = [set(re.findall(r'\[[^\[\]]*\]', k)) for k in keys]
+        parent = list(range(len(keys)))
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]; i = parent[i]
+            return i
+        for f in cluster_families(keys):
+            for i in f[1:]:
+                parent[find(i)] = find(f[0])
+        for i in range(len(keys)):
+            for j in range(i):
+                if loops[i] & loops[j]:
+                    parent[find(i)] = find(j)
+        groups = {}
+        for i in range(len(keys)):
+            groups.setdefault(find(i), []).append(i)
+        fams = list(groups.values())
+        origins = sorted((min(ev[i]['epoch'] for i in f), f) for f in fams)
+        last = run.last_epoch()
+        if a.json:
+            print(json.dumps({'removals': len(ev), 'origins': [{'epoch': e, 'removals': len(f), 'keys': [ev[i]['key'] for i in f]}
+                                                                for e, f in origins], 'last_epoch': last}, indent=1)); return
+        print(f"{len(ev)} replicators removed over {last + 1} epochs; {len(origins)} distinct origins "
+              f"(removed keys within 3 edits of each other or sharing a copy loop count as one lineage re-forming)")
+        print(f"{'origin':>7} {'first':>7} {'removals':>8}  first key")
+        for e, f in origins:
+            print(f"{origins.index((e, f)) + 1:7d} {e:7d} {len(f):8d}  {ev[min(f, key=lambda i: ev[i]['epoch'])]['key']}")
+        eps = [e for e, _ in origins]
+        if len(eps) > 1:
+            gaps = np.diff(eps)
+            print(f"epochs between origins: median {np.median(gaps):.0f}, mean {gaps.mean():.0f}; "
+                  f"origins per 1000 epochs: {1000 * len(eps) / (last + 1):.2f}")
+        return
     if a.cmd == 'info':
         e = run.last_epoch()
         n_species = run.db.execute("SELECT COUNT(*) FROM species").fetchone()[0]

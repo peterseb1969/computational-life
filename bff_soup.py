@@ -182,6 +182,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
              lineage_min_len=DEFAULT_MIN_LEN, lineage_budget_mb=DEFAULT_BUDGET_MB,
              lineage_window=None, promote_count=None, cascade_depth=None, cascade_max=None,
              stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0, stop_outcome=False,
+             cull_replicators=0, cull_interval=4,
              print_interval=100, seed_programs=None, archive=True, archive_dir='archive', protocol=None,
              heads=False, init_dist=None):
     """Run (or resume) the simulation. Returns the final soup."""
@@ -298,6 +299,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         'compressor': core.COMPRESSOR, 'max_epochs': max_epochs,
         'stop': {'entropy': stop_entropy, 'share': stop_share, 'selfreps': stop_selfreps,
                  'after': stop_after, 'outcome': stop_outcome},
+        'cull': {'replicators': cull_replicators, 'interval': cull_interval} if cull_replicators else None,
         'log_columns': LOG_COLUMNS,
         'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob, heads, init_dist)
                     + ('-resumed' if meta.get('protocol') is None and resume_path else ''),
@@ -342,6 +344,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     t_last = t0
     epoch_last = start_epoch
     stop_at = None
+    culls = list(meta.get('culls', []))
+    cull_dist = core.parse_init_dist(init_dist) if cull_replicators else None
     outcome = OutcomeDetector(num_programs) if stop_outcome else None
     selfrep_slots = -1
     selfrep_strict_slots = -1
@@ -393,6 +397,44 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 metrics_future = None
 
             cur_hash, cur_len = core.compute_keys(soup)
+
+            # -- origin-rate experiment: remove every replicator as soon as it is seen ----------
+            if cull_replicators and epoch % cull_interval == 0:
+                uniq, first_idx, counts = core.unique_counts(cur_hash)
+                long_enough = np.flatnonzero(cur_len[first_idx] >= SPIKE_MIN_LEN)
+                cand = long_enough[np.argsort(-counts[long_enough], kind='stable')[:selfrep_top]]
+                scores = core.selfrep_test(soup[first_idx[cand]], seed=epoch, max_steps=max_steps, heads_init=heads)
+                hits = np.flatnonzero(scores >= SELFREP_THRESHOLD)
+                if hits.size:
+                    cand_keys = [core.program_key(soup[first_idx[i]]) for i in cand]
+                    # the replicators, plus their near-variants among the tested species: the debris a
+                    # culled lineage would re-form from (counted separately, not towards the quota)
+                    doomed = {int(k): 'replicator' for k in hits}
+                    for k in hits:
+                        d = core.variant_distance(cand_keys[k])
+                        for j in range(len(cand)):
+                            if j not in doomed and core._near(cand_keys[j], cand_keys[k], d):
+                                doomed[j] = 'variant'
+                    for k, kind in sorted(doomed.items()):
+                        i = cand[k]
+                        slots = np.flatnonzero(cur_hash == uniq[i])
+                        rng = np.random.default_rng([int(seed), 3, int(epoch), int(k)])
+                        if cull_dist is None:
+                            soup[slots] = rng.integers(0, 256, (slots.size, TAPE_SIZE), dtype=np.uint8)
+                        else:
+                            soup[slots] = rng.choice(256, size=(slots.size, TAPE_SIZE), p=cull_dist).astype(np.uint8)
+                        event = {'epoch': epoch, 'key': cand_keys[k], 'count': int(slots.size), 'score': int(scores[k]),
+                                 'kind': kind}
+                        culls.append(event)
+                        if kind == 'replicator':
+                            n_rep = sum(1 for c in culls if c['kind'] == 'replicator')
+                            print(f"*** cull {n_rep}: epoch {epoch}, {event['key']!r} ({event['count']} copies, score "
+                                  f"{event['score']}) replaced by random programs ***", flush=True)
+                if hits.size:
+                    cur_hash, cur_len = core.compute_keys(soup)
+                    meta['culls'] = culls
+                    rd.write_meta(meta)
+
             changed = np.flatnonzero(cur_hash != prev_hash)
             partner = core.partners_from_perm(perm)
             uniq, first_idx, counts = core.unique_counts(cur_hash)
@@ -485,6 +527,13 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                           f"stopping at epoch {stop_at} ***", flush=True)
                     meta['stop_triggered'] = {'epoch': epoch, 'reason': reason, 'stop_at': stop_at}
                     rd.write_meta(meta)
+            if cull_replicators and stop_at is None and \
+                    sum(1 for c in culls if c['kind'] == 'replicator') >= cull_replicators:
+                reason = f"culled {cull_replicators} replicators (origin-rate experiment)"
+                stop_at = epoch
+                print(f"*** {reason}; stopping ***", flush=True)
+                meta['stop_triggered'] = {'epoch': epoch, 'reason': reason, 'stop_at': stop_at}
+                rd.write_meta(meta)
             if stop_at is not None and epoch >= stop_at:
                 break
     except KeyboardInterrupt:
@@ -594,6 +643,11 @@ def main(argv=None):
                    help="after self-replicators emerge (1%% of the soup), stop once they hold half the soup for "
                         "2048 epochs (takeover), are gone for 1024 epochs (extinction), or 32768 epochs pass "
                         "(unresolved); on with --stats")
+    g.add_argument("--cull-replicators", type=int, default=0, metavar="N",
+                   help="origin-rate experiment: every --cull-interval epochs test the most common long species and "
+                        "replace every copy of any self-replicator by fresh random programs (from the run's initial "
+                        "distribution); the epochs of the removals go to meta.json; stop after N removals")
+    g.add_argument("--cull-interval", type=int, default=4, help="epochs between removal tests (default: 4)")
     g.add_argument("--stop-after", type=int, default=None,
                    help="keep running this many epochs after a stop condition fires (2048 with --stats)")
     args = p.parse_args(argv)
@@ -625,6 +679,7 @@ def main(argv=None):
         promote_count=args.promote_count, cascade_depth=args.cascade_depth, cascade_max=args.cascade_max,
         stop_entropy=args.stop_entropy, stop_share=args.stop_share,
         stop_selfreps=args.stop_selfreps, stop_after=args.stop_after, stop_outcome=bool(args.stop_outcome),
+        cull_replicators=args.cull_replicators, cull_interval=args.cull_interval,
         print_interval=args.print_interval, seed_programs=args.seed_programs, archive=not args.no_archive,
         archive_dir=args.archive_dir, protocol=args.protocol, heads=args.heads, init_dist=args.init_dist,
     )
