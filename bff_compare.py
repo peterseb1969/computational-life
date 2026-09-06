@@ -52,7 +52,8 @@ def run_row(a):
         'mutation': pr['mutation_prob'], 'epochs': ev['last_epoch'], 'eps': ev['epochs_per_second'],
         'transition': ev['transition_epoch'], 'first_selfrep': ev['first_selfrep_epoch'],
         'takeover': ev.get('selfrep_gt_50pct'), 'entropy_gt_3': ev.get('entropy_gt_3'),
-        'emergence': ev.get('emergence_epoch'),
+        'emergence': ev.get('emergence_epoch'), 'parasite': ev.get('parasite_epoch'),
+        'max_parasite': ev.get('max_parasite_share'),
         'plateau': ev.get('max_selfrep_share_before_takeover'),
         'final_entropy': fi['higher_entropy'], 'final_species': fi['unique_species'],
         'top_core': fam['core'] if fam else None, 'top_share': fam['share'] if fam else None,
@@ -77,7 +78,7 @@ def fmt(c, v):
 
 def print_table(rows):
     cols = [('run', 8), ('host', 12), ('protocol', 14), ('seed', 8), ('epochs', 7), ('eps', 5),
-            ('emergence', 9), ('transition', 10), ('plateau', 8), ('final_entropy', 13),
+            ('emergence', 9), ('transition', 10), ('parasite', 8), ('plateau', 8), ('final_entropy', 13),
             ('top_share', 9), ('top_selfrep', 11), ('top_len', 7), ('top_copies_as', 13), ('top_core', 0)]
     print(' '.join(f"{c:>{w}}" if w else c for c, w in cols))
     for r in sorted(rows, key=lambda r: (r['protocol'], r['host'], str(r['seed']))):

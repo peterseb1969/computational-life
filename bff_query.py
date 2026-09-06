@@ -31,55 +31,16 @@ import sys
 import time
 
 import numpy as np
-from numba import njit, prange
-
 import bff_core as core
+from bff_core import levenshtein, batch_levenshtein
 from bff_lineage import RunDir, CHANGE_DTYPE, NO_PARTNER, open_db
 
 
 # ---------------------------------------------------------------------------
 # Edit distance (Numba)
 # ---------------------------------------------------------------------------
-@njit(cache=True)
-def levenshtein(a, la, b, lb, max_d):
-    """Levenshtein distance between a[:la] and b[:lb]; returns max_d+1 early when exceeded."""
-    if abs(la - lb) > max_d:
-        return max_d + 1
-    prev = np.empty(lb + 1, dtype=np.int32)
-    cur = np.empty(lb + 1, dtype=np.int32)
-    for j in range(lb + 1):
-        prev[j] = j
-    for i in range(1, la + 1):
-        cur[0] = i
-        row_min = cur[0]
-        ai = a[i - 1]
-        for j in range(1, lb + 1):
-            cost = 0 if ai == b[j - 1] else 1
-            v = prev[j - 1] + cost
-            if prev[j] + 1 < v:
-                v = prev[j] + 1
-            if cur[j - 1] + 1 < v:
-                v = cur[j - 1] + 1
-            cur[j] = v
-            if v < row_min:
-                row_min = v
-        if row_min > max_d:
-            return max_d + 1
-        for j in range(lb + 1):
-            prev[j] = cur[j]
-    return prev[lb]
-
-
-@njit(parallel=True, cache=True)
-def batch_levenshtein(keys, lens, q, lq, max_d, out):
-    for i in prange(keys.shape[0]):
-        out[i] = levenshtein(keys[i], lens[i], q, lq, max_d)
-
-
 def edit_distance(a, b):
-    a = np.frombuffer(a.encode('ascii'), dtype=np.uint8)
-    b = np.frombuffer(b.encode('ascii'), dtype=np.uint8)
-    return int(levenshtein(a, a.size, b, b.size, 10 ** 6))
+    return core.edit_distance(a, b)
 
 
 # ---------------------------------------------------------------------------

@@ -204,6 +204,13 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
     events['selfrep_gt_50pct'] = first_epoch_where(ep, sr_slots, lambda v: v >= 0.5 * run.num_programs)
     # emergence: self-replicators hold at least 1% of the soup (a takeover may never follow: parasites)
     events['emergence_epoch'] = first_epoch_where(ep, sr_slots, lambda v: v >= 0.01 * run.num_programs)
+    if 'parasite_slots' in log:                       # non-replicating near-variants of a replicator
+        ps = log['parasite_slots']
+        events['parasite_epoch'] = first_epoch_where(ep, ps, lambda v: v >= 0.01 * run.num_programs)
+        events['max_parasite_share'] = float(max(ps.max(), 0) / run.num_programs)
+    else:
+        events['parasite_epoch'] = None
+        events['max_parasite_share'] = None
     # ... or the diversity collapses: a pre-transition soup holds tens of thousands of distinct keys,
     # a taken-over soup a few hundred (run 46: 362 species, one family at 75%, entropy 2.3)
     events['unique_lt_5pct'] = first_epoch_where(ep, log['unique_species'], lambda v: v < 0.05 * run.num_programs)

@@ -40,7 +40,7 @@ from bff_lineage import (RunDir, LineageWriter, truncate_log, DEFAULT_MIN_LEN, D
 
 LOG_COLUMNS = ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb',
                'ops_per_pair', 'unique_species', 'top_share', 'top_key_len',
-               'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'elapsed_s']
+               'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'parasite_slots', 'elapsed_s']
 
 
 def _now():
@@ -52,7 +52,8 @@ class OutcomeDetector:
     Decides when a statistics run has told its story. Fed the self-replication count
     after every test (every --selfrep-interval epochs):
       emergence   self-replicators hold >= 1% of the soup (recorded, not a stop)
-      takeover    >= 50% of the soup at 8 consecutive tests after emergence
+      takeover    >= 50% of the soup at 8 consecutive tests after emergence, with no growing
+                  parasite load (non-replicating near-variants of a replicator below 2% of the soup)
       extinction  no self-replicator at 4 consecutive tests after emergence (parasites, fading)
       unresolved  32768 epochs after emergence without either (coexistence)
     Returns the reason string when the run should stop, else None.
@@ -65,14 +66,14 @@ class OutcomeDetector:
         self.high = 0
         self.zero = 0
 
-    def update(self, epoch, selfrep_slots):
+    def update(self, epoch, selfrep_slots, parasite_slots=0):
         if selfrep_slots < 0:
             return None
         if self.emerged is None:
             if selfrep_slots >= 0.01 * self.n:
                 self.emerged = epoch
             return None
-        self.high = self.high + 1 if selfrep_slots >= 0.5 * self.n else 0
+        self.high = self.high + 1 if (selfrep_slots >= 0.5 * self.n and parasite_slots < 0.02 * self.n) else 0
         self.zero = self.zero + 1 if selfrep_slots == 0 else 0
         if self.high >= self.takeover_tests:
             return f"takeover: self-replicators in half the soup at {self.high} consecutive tests (emerged at epoch {self.emerged})"
@@ -262,8 +263,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     print(f"BFF Primordial Soup: {num_programs} programs, seed {seed_label}{'' if seed_label == str(seed) else f' ({seed})'}, "
           f"mutation {mutation_prob:g}, max_steps {max_steps}{', heads from tape' if heads else ''}, run dir {rd.path}")
     print(f"{'Epoch':>8} {'Entropy':>8} {'bpb':>6} {'Ops/Pair':>9} {'Species':>8} {'Top%':>6} "
-          f"{'SelfRep':>8} {'ep/s':>6}")
-    print("-" * 70)
+          f"{'SelfRep':>8} {'Parasit':>8} {'ep/s':>6}")
+    print("-" * 79)
 
     _warmup()
     num_pairs = num_programs // 2
@@ -275,6 +276,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     stop_at = None
     outcome = OutcomeDetector(num_programs) if stop_outcome else None
     selfrep_slots = -1
+    parasite_slots = -1
     if resume_path:   # carry the last known self-replicator count across the resume
         last = lineage.db.execute("SELECT MAX(epoch) FROM selfrep").fetchone()[0]
         if last is not None:
@@ -340,7 +342,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 scores = core.selfrep_test(reps, seed=epoch, max_steps=max_steps, heads_init=heads)
                 lineage.record_selfrep(epoch, uniq[order], scores, counts[order])
                 selfrep_slots = int(counts[order][scores >= SELFREP_THRESHOLD].sum())
-                outcome_reason = outcome.update(epoch, selfrep_slots) if outcome is not None else None
+                parasite_slots, _ = core.parasite_load([core.program_key(p) for p in reps], counts[order], scores)
+                outcome_reason = outcome.update(epoch, selfrep_slots, parasite_slots) if outcome is not None else None
                 if outcome is not None and outcome.emerged == epoch:
                     print(f"*** Self-replicators emerged at epoch {epoch} ({selfrep_slots} slots) ***", flush=True)
                     meta['emergence_epoch'] = epoch
@@ -355,7 +358,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             elapsed = time.time() - t0
             queue.append((f"{epoch},{{compressed}},{{nbytes}},{{higher_entropy:.6f}},{{h0:.6f}},{{bpb:.6f}},"
                           f"{ops.mean():.2f},{uniq.size},{top_share:.6f},{top_len},"
-                          f"{changed.size},{n_new},{n_prom},{selfrep_slots},{elapsed:.1f}\n", metrics_future))
+                          f"{changed.size},{n_new},{n_prom},{selfrep_slots},{parasite_slots},{elapsed:.1f}\n", metrics_future))
             finish_rows()
 
             # -- progress ----------------------------------------------------
@@ -366,7 +369,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 t_last, epoch_last = now, epoch
                 print(f"{epoch:8d} {metrics['higher_entropy']:8.3f} {metrics['bpb']:6.2f} "
                       f"{ops.mean():9.1f} {uniq.size:8d} {100 * top_share:6.2f} "
-                      f"{selfrep_slots:8d} {rate:6.1f}", flush=True)
+                      f"{selfrep_slots:8d} {parasite_slots:8d} {rate:6.1f}", flush=True)
 
             # -- stop conditions ---------------------------------------------
             if stop_at is None and (stop_entropy is not None or stop_share is not None or stop_selfreps is not None

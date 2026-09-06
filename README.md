@@ -97,7 +97,7 @@ Every run writes to `runs/<seed>` (or `--run-dir`):
 | Path | Content |
 |------|---------|
 | `meta.json` | All parameters, resume history, stop-condition events, recording statistics |
-| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots, elapsed time |
+| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots, parasite load (slots of non-replicating near-variants of a replicator), elapsed time |
 | `checkpoints/*.dat` | The soup every `--checkpoint-interval` epochs (JSON header + raw bytes). File `0` is the initial soup, file `e` the soup after epoch `e`. |
 | `changes.bin` | Change records (epoch, slot, partner slot, new key hash) for slots that changed to a recorded species, plus every slot at epoch 0 |
 | `species.db` | SQLite: recorded species with their birth event, key texts of snapshot species, species counts every `--species-interval` epochs, self-replication scores |
@@ -159,7 +159,8 @@ stop conditions (optional):
   --stop-share X        Stop when one species exceeds X percent of the soup
   --stop-selfreps N     Stop when at least N slots hold a self-replicator
   --stop-outcome        After emergence (replicators in 1% of the soup): stop on takeover (half the soup for
-                        2048 epochs), extinction (none for 1024 epochs) or 32768 unresolved epochs
+                        2048 epochs with parasite load below 2%), extinction (none for 1024 epochs) or
+                        32768 unresolved epochs
   --stop-after N        Keep running N more epochs after a stop condition fires
 ```
 
@@ -231,7 +232,7 @@ python3 bff_compare.py --families      # leading family cores across runs, recur
 python3 bff_compare.py --csv runs.csv  # one row per run
 ```
 
-**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of the [results repository](https://github.com/peterseb1969/computational-life-results), and commit the archive when a run ends. For statistics let runs stop themselves: the `--stats` preset uses `--stop-outcome`, which waits for the story to end after self-replicators first hold 1% of the soup: a takeover held for 2048 epochs, an extinction (no self-replicator for 1024 epochs, as after a parasite), or 32768 unresolved epochs of coexistence. The archive dates both the **emergence** (replicators at 1%) and the **transition** (entropy above 3, replicators in half the soup, or distinct keys below 5%), and `bff_compare.py --survival` shows both curves. A run that reaches the epoch cap without the event is a censored observation.
+**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of the [results repository](https://github.com/peterseb1969/computational-life-results), and commit the archive when a run ends. For statistics let runs stop themselves: the `--stats` preset uses `--stop-outcome`, which waits for the story to end after self-replicators first hold 1% of the soup: a takeover held for 2048 epochs with a low **parasite load** (slots held by species that fail the self-replication test but lie within four edits of one that passes, such as a host minus its closing bracket, below 2% of the soup), an extinction (no self-replicator for 1024 epochs, as after a parasite), or 32768 unresolved epochs of coexistence. The parasite load is logged at every test and the archive dates the first epoch it reached 1%. The archive dates both the **emergence** (replicators at 1%) and the **transition** (entropy above 3, replicators in half the soup, or distinct keys below 5%), and `bff_compare.py --survival` shows both curves. A run that reaches the epoch cap without the event is a censored observation.
 
 ## Findings
 

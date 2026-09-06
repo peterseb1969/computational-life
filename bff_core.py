@@ -14,7 +14,7 @@ Requires: numpy, numba (brotli optional but recommended)
 
 import json
 import numpy as np
-from numba import njit, prange
+from numba import njit, prange  # noqa: F401
 
 TAPE_SIZE = 64
 COMBINED_SIZE = 2 * TAPE_SIZE
@@ -386,6 +386,78 @@ def selfrep_test(programs, seed=0, max_steps=DEFAULT_MAX_STEPS, heads_init=False
     out = np.empty(programs.shape[0], dtype=np.int32)
     selfrep_scores(programs, seed, max_steps, out, heads_init)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Edit distance and parasite load
+# ---------------------------------------------------------------------------
+@njit(cache=True)
+def levenshtein(a, la, b, lb, max_d):
+    """Levenshtein distance between a[:la] and b[:lb]; returns max_d+1 early when exceeded."""
+    if abs(la - lb) > max_d:
+        return max_d + 1
+    prev = np.empty(lb + 1, dtype=np.int32)
+    cur = np.empty(lb + 1, dtype=np.int32)
+    for j in range(lb + 1):
+        prev[j] = j
+    for i in range(1, la + 1):
+        cur[0] = i
+        row_min = cur[0]
+        ai = a[i - 1]
+        for j in range(1, lb + 1):
+            cost = 0 if ai == b[j - 1] else 1
+            v = prev[j - 1] + cost
+            if prev[j] + 1 < v:
+                v = prev[j] + 1
+            if cur[j - 1] + 1 < v:
+                v = cur[j - 1] + 1
+            cur[j] = v
+            if v < row_min:
+                row_min = v
+        if row_min > max_d:
+            return max_d + 1
+        for j in range(lb + 1):
+            prev[j] = cur[j]
+    return prev[lb]
+
+
+@njit(parallel=True, cache=True)
+def batch_levenshtein(keys, lens, q, lq, max_d, out):
+    for i in prange(keys.shape[0]):
+        out[i] = levenshtein(keys[i], lens[i], q, lq, max_d)
+
+
+def edit_distance(a, b):
+    a = np.frombuffer(a.encode('ascii'), dtype=np.uint8)
+    b = np.frombuffer(b.encode('ascii'), dtype=np.uint8)
+    return int(levenshtein(a, a.size, b, b.size, 10 ** 6))
+
+
+def parasite_load(keys, counts, scores, threshold=SELFREP_THRESHOLD, max_dist=4):
+    """
+    Slots held by parasite candidates: species that fail the self-replication test but lie
+    within `max_dist` edits (up to reversal) of a species that passes, such as a host minus
+    the bracket that closes its loop. keys: list of instruction strings; counts, scores: arrays.
+    Returns (parasite_slots, number_of_candidate_species).
+    """
+    keys = list(keys)
+    hosts = [i for i, s in enumerate(scores) if s >= threshold]
+    if not hosts:
+        return 0, 0
+    slots = 0
+    n_cand = 0
+    for i, k in enumerate(keys):
+        if scores[i] >= threshold or not k:
+            continue
+        for h in hosts:
+            hk = keys[h]
+            if abs(len(k) - len(hk)) > max_dist:
+                continue
+            if edit_distance(k, hk) <= max_dist or edit_distance(k, hk[::-1]) <= max_dist:
+                slots += int(counts[i])
+                n_cand += 1
+                break
+    return int(slots), n_cand
 
 
 # ---------------------------------------------------------------------------
