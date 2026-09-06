@@ -21,8 +21,8 @@ A soup of random 64-byte programs is repeatedly paired up. Each pair is executed
 python3 -m venv .venv && source .venv/bin/activate      # Python 3.11+
 pip install -r requirements.txt                          # numpy, numba, brotli
 
-# A statistics run: 131072 programs, the paper's step budget, sampled metrics, stops 2048 epochs
-# after replicators hold half the soup, capped at 100k epochs. The run is named <host>-<date>-<letter>.
+# A statistics run: 131072 programs, the paper's step budget, sampled metrics, stops 8192 epochs
+# after replicators hold 1% of the soup, capped at 100k epochs. The run is named <host>-<date>-<letter>.
 # On an M4 Pro this runs at 60+ epochs/s before replicators appear and slows during takeover.
 python3 bff_soup.py --stats
 
@@ -123,8 +123,8 @@ python3 bff_soup.py --resume runs/44/checkpoints/0000010240.dat     # a specific
 
 ```
 simulation:
-  --stats               Preset: 131072 programs, 8192 steps, sampled metrics, --stop-selfreps 65536
-                        --stop-after 2048, cap 100000 epochs (explicit flags win)
+  --stats               Preset: 131072 programs, 8192 steps, sampled metrics, --stop-selfreps 1311
+                        --stop-after 8192, cap 100000 epochs (explicit flags win)
   --num N               Number of programs, even (default: 1024)
   --epochs N            Run until this epoch number (default: 10000)
   --seed S              Random seed: a number, or any name (hashed; also the run's name).
@@ -215,7 +215,7 @@ Add `--json` before a `bff_query.py` subcommand for machine-readable output. Rep
 
 The run directory is a large working set. The durable output of a run is its **archive**, one JSON file of a few hundred KB written to `archive/<run>.json` when the simulation finishes or is stopped (or with `python3 bff_archive.py runs/44` at any time). Archives are not committed to this repository. An archive contains:
 
-- run facts and event epochs: transition (the earliest of: entropy > 3, half the soup holding self-replicators, distinct keys below 5% of the soup), first self-replicator, top-species share crossings
+- run facts and event epochs: emergence (self-replicators in 1% of the soup), transition (the earliest of: entropy > 3, half the soup holding self-replicators, distinct keys below 5% of the soup), first self-replicator, top-species share crossings
 - the top 20 species at the end and at 256, 1024 and 4096 epochs after the transition, each with raw bytes, share, self-replication score and birth
 - **families**: the winners clustered into variants of one core (edit distance ≤ 3, up to reversal), with a functional profile of the representative: instruction usage, writing head, instructions per execution, faithful generations, direct or mirror copying
 - the emergence story: the ancestry tree of each family's representative, and for the five leading families the exact tapes of the birth events along the primary ancestor line
@@ -228,7 +228,7 @@ python3 bff_compare.py --families      # leading family cores across runs, recur
 python3 bff_compare.py --csv runs.csv  # one row per run
 ```
 
-**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of the [results repository](https://github.com/peterseb1969/computational-life-results), and commit the archive when a run ends. For transition statistics let runs stop themselves shortly after takeover: `--stop-selfreps 65536 --stop-after 2048 --epochs 60000`. A run that reaches the epoch cap without a transition is a censored observation, and the survival table treats it as such.
+**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of the [results repository](https://github.com/peterseb1969/computational-life-results), and commit the archive when a run ends. For statistics let runs stop themselves: the `--stats` preset stops 8192 epochs after self-replicators first hold 1% of the soup, long enough to see whether a takeover, a parasite or a collapse follows. The archive dates both the **emergence** (replicators at 1%) and the **transition** (entropy above 3, replicators in half the soup, or distinct keys below 5%), and `bff_compare.py --survival` shows both curves. A run that reaches the epoch cap without the event is a censored observation.
 
 ## Findings
 

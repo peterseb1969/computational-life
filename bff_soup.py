@@ -387,8 +387,8 @@ def main(argv=None):
                    help="random seed: a number, or any name (hashed to an integer; also the run's name). "
                         "Default: <host>-<date>-<letter>")
     g.add_argument("--stats", action="store_true",
-                   help="statistics preset: 131072 programs, 8192 steps, sampled metrics, stop 2048 epochs after "
-                        "replicators hold half the soup, cap 100000 epochs (explicit flags win)")
+                   help="statistics preset: 131072 programs, 8192 steps, sampled metrics, stop 8192 epochs after "
+                        "replicators hold 1%% of the soup, cap 100000 epochs (explicit flags win)")
     g.add_argument("--heads", action="store_true",
                    help="the paper's 'bff' variant: the first two tape bytes set the head positions, execution starts at byte 2")
     g.add_argument("--mutation-prob", type=float, default=None,
@@ -437,14 +437,16 @@ def main(argv=None):
     g.add_argument("--stop-share", type=float, default=None,
                    help="stop when one species exceeds this percentage of the soup")
     g.add_argument("--stop-selfreps", type=int, default=None,
-                   help="stop when at least this many slots hold a self-replicator (65536 with --stats)")
+                   help="stop when at least this many slots hold a self-replicator (1311 = 1%% with --stats)")
     g.add_argument("--stop-after", type=int, default=None,
-                   help="keep running this many epochs after a stop condition fires (2048 with --stats)")
+                   help="keep running this many epochs after a stop condition fires (8192 with --stats)")
     args = p.parse_args(argv)
 
     # defaults, with the --stats preset filling in what was not given explicitly
+    # stop on emergence (replicators in 1% of the soup) plus enough epochs to see whether a takeover,
+    # a parasite or a collapse follows; a takeover criterion alone can wait forever
     preset = ({'num': 131072, 'epochs': 100000, 'max_steps': 8192, 'metric_sample': 32768,
-               'stop_selfreps': 65536, 'stop_after': 2048} if args.stats else {})
+               'stop_selfreps': 1311, 'stop_after': 8192} if args.stats else {})
     base = {'num': 1024, 'epochs': 10000, 'max_steps': DEFAULT_MAX_STEPS, 'metric_sample': 0,
             'stop_selfreps': None, 'stop_after': 0}
     for k, v in base.items():

@@ -52,6 +52,7 @@ def run_row(a):
         'mutation': pr['mutation_prob'], 'epochs': ev['last_epoch'], 'eps': ev['epochs_per_second'],
         'transition': ev['transition_epoch'], 'first_selfrep': ev['first_selfrep_epoch'],
         'takeover': ev.get('selfrep_gt_50pct'), 'entropy_gt_3': ev.get('entropy_gt_3'),
+        'emergence': ev.get('emergence_epoch'),
         'plateau': ev.get('max_selfrep_share_before_takeover'),
         'final_entropy': fi['higher_entropy'], 'final_species': fi['unique_species'],
         'top_core': fam['core'] if fam else None, 'top_share': fam['share'] if fam else None,
@@ -76,7 +77,7 @@ def fmt(c, v):
 
 def print_table(rows):
     cols = [('run', 8), ('host', 12), ('protocol', 14), ('seed', 8), ('epochs', 7), ('eps', 5),
-            ('first_selfrep', 13), ('transition', 10), ('plateau', 8), ('final_entropy', 13),
+            ('emergence', 9), ('transition', 10), ('plateau', 8), ('final_entropy', 13),
             ('top_share', 9), ('top_selfrep', 11), ('top_len', 7), ('top_copies_as', 13), ('top_core', 0)]
     print(' '.join(f"{c:>{w}}" if w else c for c, w in cols))
     for r in sorted(rows, key=lambda r: (r['protocol'], r['host'], str(r['seed']))):
@@ -103,15 +104,16 @@ def kaplan_meier(times, transitioned, at):
     return out
 
 
-def survival(rows):
-    """Per protocol: runs, transitions, and the transitioned fraction at fixed epochs."""
+def survival(rows, event='transition'):
+    """Per protocol: runs, events, and the fraction with the event by fixed epochs.
+    event: 'transition' (takeover) or 'emergence' (replicators hold >= 1% of the soup)."""
     by = {}
     for r in rows:
         by.setdefault(r['protocol'], []).append(r)
     result = {}
     for proto, rs in sorted(by.items()):
-        times = [r['transition'] if r['transition'] is not None else r['epochs'] for r in rs]
-        events = [r['transition'] is not None for r in rs]
+        times = [r[event] if r[event] is not None else r['epochs'] for r in rs]
+        events = [r[event] is not None for r in rs]
         horizon = max(times) if times else 0
         at = [e for e in SURVIVAL_EPOCHS if e < horizon] + [horizon]
         km = kaplan_meier(times, events, at)
@@ -123,9 +125,9 @@ def survival(rows):
     return result
 
 
-def print_survival(sv):
+def print_survival(sv, event='transition'):
     for proto, s in sv.items():
-        print(f"\nprotocol {proto}: {s['runs']} runs, {s['transitions']} transitions at epochs {s['transition_epochs']}, "
+        print(f"\nprotocol {proto}, {event}: {s['runs']} runs, {s['transitions']} events at epochs {s['transition_epochs']}, "
               f"censored at {s['censored_at']}; runs with an early replicator plateau (>= 1% of slots before takeover): {s['plateau_runs']}")
         print(f"  {'epoch':>7} {'transitioned':>13} {'runs observed this far':>23}")
         for c in s['curve']:
@@ -178,14 +180,15 @@ def main(argv=None):
     if a.json:
         out = {'runs': rows}
         if a.survival:
-            out['survival'] = survival(rows)
+            out['survival'] = {'emergence': survival(rows, 'emergence'), 'transition': survival(rows, 'transition')}
         if a.families:
             out['families'] = family_comparison(archives, a.top)
         print(json.dumps(out, indent=2))
         return
     print_table(rows)
     if a.survival:
-        print_survival(survival(rows))
+        print_survival(survival(rows, 'emergence'), 'emergence')
+        print_survival(survival(rows, 'transition'), 'transition (takeover)')
     if a.families:
         fc = family_comparison(archives, a.top)
         print("\nLeading replicating families per run:")

@@ -202,6 +202,8 @@ def build_archive(run_path, top_n=20, tape_families=5, tape_births=12, log_point
     # entropy above 3, as in run 44). The transition epoch is the earliest of the two signals.
     sr_slots = log['selfrep_slots']
     events['selfrep_gt_50pct'] = first_epoch_where(ep, sr_slots, lambda v: v >= 0.5 * run.num_programs)
+    # emergence: self-replicators hold at least 1% of the soup (a takeover may never follow: parasites)
+    events['emergence_epoch'] = first_epoch_where(ep, sr_slots, lambda v: v >= 0.01 * run.num_programs)
     # ... or the diversity collapses: a pre-transition soup holds tens of thousands of distinct keys,
     # a taken-over soup a few hundred (run 46: 362 species, one family at 75%, entropy 2.3)
     events['unique_lt_5pct'] = first_epoch_where(ep, log['unique_species'], lambda v: v < 0.05 * run.num_programs)
@@ -325,8 +327,8 @@ def print_summary(a):
     ev = a['events']
     print(f"Run {a['run']} on {a.get('host', {}).get('host', '?')} [{a.get('protocol', '?')}]: {a['params']['num_programs']} programs, seed {a['params']['seed']}, "
           f"{ev['last_epoch']} epochs, {ev['epochs_per_second'] or 0:.1f} epochs/s")
-    print(f"  transition: {ev['transition_epoch']} (entropy > 3: {ev['entropy_gt_3']}, replicators > 50%: {ev.get('selfrep_gt_50pct')}, "
-          f"species < 5%: {ev.get('unique_lt_5pct')})   "
+    print(f"  emergence (replicators >= 1%): {ev.get('emergence_epoch')}   transition: {ev['transition_epoch']} "
+          f"(entropy > 3: {ev['entropy_gt_3']}, replicators > 50%: {ev.get('selfrep_gt_50pct')}, species < 5%: {ev.get('unique_lt_5pct')})   "
           f"first self-replicator: {ev['first_selfrep_epoch']}   "
           f"share > 5%: {ev['share_gt_5pct']}   share > 20%: {ev['share_gt_20pct']}")
     print(f"  final: entropy {a['final']['higher_entropy']:.2f}, bpb {a['final']['bpb']:.2f}, "

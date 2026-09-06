@@ -151,6 +151,20 @@ No self-replicator is involved: a screen of 2,000 random slots at 150,000 finds 
 
 So the full arc of one seed, 150,000 epochs: random soup, a replicator, a parasite that ate it, a desert of debris, and finally a crystal. Life, in the sense of self-replication, existed for about 17,000 epochs of it.
 
+## It happened again: a second seed
+
+The Mac mini's statistics run `peters-mac-mini-m4-pro-20260906-a`, same protocol, different seed, went through the same arc faster. From its log and checkpoints:
+
+| Epoch | What the soup looked like |
+|---|---|
+| 37,888 | random background, 115k distinct keys, no replicator in a screen of 1,000 slots |
+| 39,936 | 18k distinct keys, entropy 2.65. Replicators in 3.4% of a random screen, but the three most common keys, `<[[,<},,}<,[[[[<` and variants at 4.4%, 2.9% and 1.9%, have no closing bracket and score 0: loopless variants of the replicator, already outnumbering it. Only one `]` per 1,000 soup bytes. |
+| 42,496 | no replicator left in a screen of 1,000 slots; `]` gone from the soup; the loopless variants decaying |
+| 48,128 | desert: 126k distinct keys, `]`, `+`, `-` absent, entropy near zero |
+| 55,552 | crystal forming: `}` 100, `<` 77 and `{` 44 per 1,000 bytes, 130k distinct keys, entropy negative |
+
+Emergence at about 37,500, hosts extinct by 42,000, desert by 48,000, crystal by 55,000: the macbook-1 sequence compressed into a third of the time. In this run the replicators never held more than 6.5 percent of the soup, so no takeover criterion fired at all; the loopless variants took the soup directly. This is why the statistics now record the emergence, self-replicators in 1 percent of the soup, as its own event.
+
 ## Watch it happen in the stepper
 
 The viewer's Stepper tab replays the hijack with real bytes, instruction by instruction. It needs the run directory, which anyone can regenerate because the simulation is deterministic: the seed fixes the initial soup and every epoch's pairing. About 20 minutes on an M4 Pro, byte-identical to the original:
