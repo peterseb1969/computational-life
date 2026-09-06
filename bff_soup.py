@@ -35,7 +35,7 @@ import numpy as np
 
 import bff_core as core
 from bff_core import TAPE_SIZE, DEFAULT_MAX_STEPS, SELFREP_THRESHOLD
-from bff_lineage import (RunDir, LineageWriter, truncate_log, DEFAULT_MIN_LEN, DEFAULT_BUDGET_MB,
+from bff_lineage import (RunDir, LineageWriter, truncate_log, migrate_log, DEFAULT_MIN_LEN, DEFAULT_BUDGET_MB,
                          DEFAULT_WINDOW, DEFAULT_PROMOTE_COUNT, DEFAULT_CASCADE_DEPTH, DEFAULT_CASCADE_MAX)
 # imported up front so that a code update during a long run cannot leave the exit-time archive
 # with a mix of old and new modules (bff_archive pulls in bff_query and bff_core)
@@ -196,6 +196,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             schedule.append({'from_epoch': start_epoch, 'prob': mutation_prob})
         meta['mutation_schedule'] = schedule
         truncate_log(rd.log_path, ck['epoch'])
+        if migrate_log(rd.log_path, LOG_COLUMNS):
+            print("Log rewritten in the current column layout (older columns kept, new ones filled with -1).")
         print(f"Resuming {rd.path} from {ckpt} at epoch {start_epoch}")
     else:
         seed_label = str(seed)

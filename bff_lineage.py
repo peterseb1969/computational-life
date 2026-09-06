@@ -457,6 +457,81 @@ def load_changes(run_dir):
     return np.memmap(path, dtype=CHANGE_DTYPE, mode='r')
 
 
+# every column layout the simulator has written, oldest first; a row is interpreted by its
+# number of fields, so logs that changed layout at a resume still parse
+LOG_LAYOUTS = [
+    ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb', 'ops_per_pair', 'unique_species',
+     'top_share', 'top_key_len', 'key_changes', 'new_species', 'selfrep_slots', 'elapsed_s'],
+    ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb', 'ops_per_pair', 'unique_species',
+     'top_share', 'top_key_len', 'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'elapsed_s'],
+    ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb', 'ops_per_pair', 'unique_species',
+     'top_share', 'top_key_len', 'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'parasite_slots',
+     'elapsed_s'],
+]
+LOG_MISSING = -1.0        # value of a column a row does not have (e.g. parasite_slots before it existed)
+
+
+def read_log(path):
+    """
+    Read a metrics log into {column: float array}. Rows are matched to the simulator's column
+    layouts by field count, so a file whose layout changed at a resume is read completely;
+    other files (cubff logs) are read by their header. Missing columns hold LOG_MISSING.
+    """
+    with open(path) as f:
+        header = [c.strip() for c in f.readline().strip().split(',')]
+        lines = f.read().splitlines()
+    by_count = {len(l): l for l in LOG_LAYOUTS}
+    if header not in LOG_LAYOUTS:
+        by_count = {len(header): header}
+    columns = []
+    for layout in ([header] + LOG_LAYOUTS if header not in LOG_LAYOUTS else LOG_LAYOUTS):
+        for c in layout:
+            if c not in columns:
+                columns.append(c)
+    rows = []
+    for line in lines:
+        parts = line.split(',')
+        layout = by_count.get(len(parts))
+        if layout is None:
+            continue
+        try:
+            vals = dict(zip(layout, (float(x) for x in parts)))
+        except ValueError:
+            continue
+        rows.append([vals.get(c, LOG_MISSING) for c in columns])
+    arr = np.array(rows, dtype=np.float64) if rows else np.zeros((0, len(columns)))
+    out = {c: arr[:, i] for i, c in enumerate(columns)}
+    if 'epoch' in out:
+        out['epoch'] = out['epoch'].astype(np.int64)
+    return out
+
+
+def migrate_log(log_path, columns):
+    """Rewrite a log written with an older layout into `columns`, filling missing ones with LOG_MISSING."""
+    if not os.path.exists(log_path):
+        return False
+    with open(log_path) as f:
+        header = [c.strip() for c in f.readline().strip().split(',')]
+    if header == columns:
+        return False
+    data = read_log(log_path)
+    n = data['epoch'].size if 'epoch' in data else 0
+    with open(log_path, 'w') as f:
+        f.write(','.join(columns) + '\n')
+        for i in range(n):
+            f.write(','.join(_fmt_log_value(c, data[c][i] if c in data else LOG_MISSING) for c in columns) + '\n')
+    return True
+
+
+def _fmt_log_value(col, v):
+    if col in ('epoch', 'compressed_size', 'soup_bytes', 'unique_species', 'top_key_len', 'key_changes',
+               'new_species', 'promoted_species', 'selfrep_slots', 'parasite_slots'):
+        return str(int(v))
+    if col == 'elapsed_s':
+        return f"{v:.1f}"
+    return f"{v:.6f}"
+
+
 def truncate_log(log_path, epoch):
     """Drop log rows after `epoch` (used when resuming)."""
     if not os.path.exists(log_path):

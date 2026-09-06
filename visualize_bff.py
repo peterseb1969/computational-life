@@ -16,6 +16,12 @@ import os
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from bff_lineage import read_log as _read_simulator_log, LOG_LAYOUTS
+except Exception:  # noqa: BLE001 - standalone use on a cubff log without the package
+    _read_simulator_log, LOG_LAYOUTS = None, []
+
 # column aliases so both this simulator's log and cubff's log can be read
 TRANSITION_ENTROPY = 3.0     # a run has transitioned once entropy exceeded this
 COLLAPSE_ENTROPY = 2.5       # ... and has collapsed if entropy later falls below this
@@ -35,6 +41,12 @@ def read_log(filepath):
             lines = f.readlines()
     except FileNotFoundError:
         return data
+    if _read_simulator_log is not None and lines and [c.strip() for c in lines[0].split(',')] in LOG_LAYOUTS:
+        try:
+            arr = _read_simulator_log(filepath)          # handles layout changes at resumes
+            return {c: v.tolist() for c, v in arr.items()}
+        except Exception:  # noqa: BLE001
+            pass
     if len(lines) < 2:
         return data
     cols = [ALIASES.get(c.strip(), c.strip()) for c in lines[0].split(',')]

@@ -33,7 +33,7 @@ import time
 import numpy as np
 import bff_core as core
 from bff_core import levenshtein, batch_levenshtein
-from bff_lineage import RunDir, CHANGE_DTYPE, NO_PARTNER, open_db
+from bff_lineage import RunDir, CHANGE_DTYPE, NO_PARTNER, open_db, read_log
 
 
 # ---------------------------------------------------------------------------
@@ -93,15 +93,8 @@ class Run:
         return -1
 
     def log(self, columns=None):
-        """The metrics log as dict of numpy arrays."""
-        with open(self.rd.log_path) as f:
-            header = f.readline().strip().split(',')
-        data = np.genfromtxt(self.rd.log_path, delimiter=',', skip_header=1, dtype=np.float64,
-                             invalid_raise=False)
-        if data.ndim == 1:
-            data = data.reshape(1, -1)
-        out = {c: data[:, i] for i, c in enumerate(header)}
-        out['epoch'] = out['epoch'].astype(np.int64)
+        """The metrics log as dict of numpy arrays (layout changes at resumes are handled)."""
+        out = read_log(self.rd.log_path)
         if columns:
             out = {c: out[c] for c in columns}
         return out
