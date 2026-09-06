@@ -1,5 +1,6 @@
-# Run directories and legacy checkpoints (large binary files)
+# Run directories, archives and legacy checkpoints (run results are not committed)
 runs/
+archive/
 checkpoints/
 python_checkpoints/
 *.dat

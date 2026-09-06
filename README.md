@@ -1,5 +1,7 @@
 # BFF Primordial Soup
 
+> **This is a fork** of [gustavsoderstrom/computational-life](https://github.com/gustavsoderstrom/computational-life) that turns the original single-file simulation into an analysis toolchain: a replay-exact simulator with lineage recording, a query layer for searching programs and tracing their ancestry back to the epoch they first appeared, a local web viewer with an animated BFF stepper, and per-run archives for cross-run comparison. The interpreter is about 8x faster than the original on a mature soup. New code is MIT licensed (see `LICENSE`).
+
 A simple and basic (Numba-accelerated) Python implementation of the BFF (Brainfuck variant) primordial soup experiment from ["Computational Life: How Well-formed, Self-replicating Programs Emerge from Simple Interaction"](https://arxiv.org/abs/2406.19108) by Blaise Agüera y Arcas et al.
 
 This demonstrates how **self-replicating programs can emerge spontaneously** from random programs through self-modification — no fitness function, no selection pressure, just random interactions.
@@ -87,8 +89,9 @@ The replicator **copies itself backwards** into the other program's space. The p
 ## Quick Start
 
 ```bash
-# Use the project venv (has numba, numpy, brotli)
-source ../.venv/bin/activate
+# Set up (Python 3.11+; numba, numpy, brotli)
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
 # Run simulation with 131k programs (as used in the paper); ~17 epochs/sec pre-transition on an M2
 python3 bff_soup.py --num 131072 --epochs 40000 --seed 42
@@ -187,7 +190,7 @@ Works while a simulation is running. Tabs:
 
 ### Run archives and cross-run analytics
 
-The run directory is a large working set. The durable output of a run is its **archive**, one JSON file of a few hundred KB written to `archive/<run>.json` when the simulation finishes or is stopped (also `python3 bff_archive.py runs/42` at any time). It contains:
+The run directory is a large working set. The durable output of a run is its **archive**, one JSON file of a few hundred KB written to `archive/<run>.json` (run results are not committed to this repository) when the simulation finishes or is stopped (also `python3 bff_archive.py runs/42` at any time). It contains:
 
 - run facts and event epochs: transition (entropy > 3), first self-replicator, share crossings
 - the top 20 species at the end and at 256, 1024 and 4096 epochs after the transition, each with raw bytes, share, self-replication score and birth
@@ -275,3 +278,7 @@ A successful transition typically shows:
 - Paper: [arXiv:2406.19108](https://arxiv.org/abs/2406.19108)
 - Original implementation: [github.com/paradigms-of-intelligence/cubff](https://github.com/paradigms-of-intelligence/cubff)
 - Sean Carroll interview: [Mindscape Podcast](https://www.preposterousuniverse.com/podcast/2024/07/22/283-blaise-aguera-y-arcas-on-the-emergence-of-replication-and-computation/)
+
+## License
+
+The code added in this fork is released under the MIT license (see `LICENSE`). The original repository carries no license file; its remaining parts are used with attribution to Gustav Söderström.
