@@ -1,139 +1,129 @@
 # BFF Primordial Soup
 
-> **This is a fork** of [gustavsoderstrom/computational-life](https://github.com/gustavsoderstrom/computational-life) that turns the original single-file simulation into an analysis toolchain: a replay-exact simulator with lineage recording, a query layer for searching programs and tracing their ancestry back to the epoch they first appeared, a local web viewer with an animated BFF stepper, and per-run archives for cross-run comparison. The interpreter is about 8x faster than the original on a mature soup. New code is MIT licensed (see `LICENSE`).
+> **This is a fork** of [gustavsoderstrom/computational-life](https://github.com/gustavsoderstrom/computational-life). The original is a compact Python re-implementation of the BFF experiment from ["Computational Life: How Well-formed, Self-replicating Programs Emerge from Simple Interaction"](https://arxiv.org/abs/2406.19108) (Agüera y Arcas et al., 2024). This fork turns it into an analysis toolchain. New code is MIT licensed (see `LICENSE`).
 
-A simple and basic (Numba-accelerated) Python implementation of the BFF (Brainfuck variant) primordial soup experiment from ["Computational Life: How Well-formed, Self-replicating Programs Emerge from Simple Interaction"](https://arxiv.org/abs/2406.19108) by Blaise Agüera y Arcas et al.
+A soup of random 64-byte programs is repeatedly paired up. Each pair is executed as one 128-byte tape in a Brainfuck dialect (BFF) whose instructions read and write the tape itself, then split again. There is no fitness function and, by default, no mutation. Sooner or later a program appears that copies itself into its partner, and the soup changes character: entropy, bits per byte and species counts all jump. This repository lets you run that experiment at the paper's scale, watch it live, search the soup for a program, trace a replicator's ancestry back to the epoch it first appeared, replay any birth event step by step in the browser, and compare what emerged across runs.
 
-This demonstrates how **self-replicating programs can emerge spontaneously** from random programs through self-modification — no fitness function, no selection pressure, just random interactions.
+**What the fork adds**
 
-## How It Works
+- A replay-exact simulator: every epoch's pairing derives from the seed, slots are stable identities, and a resumed run reproduces the uninterrupted one byte for byte.
+- Lineage recording while the run goes: which slot produced which key, from which two parents, at which epoch.
+- A query layer and CLI: exact, substring, regex and fuzzy search; species history; ancestry trees with mirror-copy detection; exact replay of any epoch.
+- A local web viewer with overview charts, species dynamics, search, lineage trees and an animated BFF stepper.
+- Per-run archives (winners, families, emergence story) and a cross-run comparison tool.
+- An interpreter about 8x faster than the original on a mature soup, with results proven identical.
 
-1. Start with a "soup" of random 64-byte programs with completely randomized byte values (only 10 of which correspond to actual brainfuck instructions, meaning only about ~4% of cells will actually have any type of instruction at all in them and, the rest are just no-ops)
-2. Each epoch: shuffle the programs, pair them up, concatenate into 128-byte tapes
-3. Execute the BFF interpreter on each tape (programs can modify themselves and each other)
-4. Split tapes back into programs
-5. Repeat — eventually, self-replicators emerge and take over the soup
+## Quick start
 
-The **phase transition** is detected when higher-order entropy spikes above 3.0, indicating structured replicators have emerged from random noise.
+```bash
+python3 -m venv .venv && source .venv/bin/activate      # Python 3.11+
+pip install -r requirements.txt                          # numpy, numba, brotli
 
-**No mutation:** This Python implementation deliberately uses no external mutation. Programs only change through self-modification during BFF execution. This demonstrates the paper's key insight — self-replicators can emerge purely from program interactions without any external randomness or mutation pressure.
+# Run at the paper's scale with the paper's step budget. On an M4 Pro this runs at
+# 60+ epochs/s before replicators appear and 20-40 epochs/s during heavy churn.
+python3 bff_soup.py --num 131072 --epochs 60000 --seed 44 --max-steps 8192 --metric-sample 32768
 
-## BFF Instruction Set
+# In other terminals: terminal monitor, or the web viewer on http://localhost:8765/
+python3 visualize_bff.py runs/44
+python3 bff_web.py
 
-BFF (Brainfuck variant) modifies standard Brainfuck for self-modification instead of I/O. It uses two head pointers on a shared tape:
+# When the run ends (or is stopped with Ctrl-C) its archive is written to archive/44.json
+python3 bff_compare.py --families
+```
+
+Transitions are a matter of luck and patience: the paper reports about 40% of 131k-program runs transitioning within 16k epochs. Runs 42 and 43 of this fork ran 43k and 60k epochs without one; run 44 produced a replicator pair at epoch 1084.
+
+## The experiment
+
+### How it works
+
+1. Start with a soup of random 64-byte programs. Only 10 of 256 byte values are instructions, so about 4% of bytes do anything; the rest are data.
+2. Each epoch, pair the programs at random and concatenate each pair into a 128-byte tape.
+3. Execute the tape. Programs can modify themselves and each other.
+4. Split the tape back into its two slots.
+5. Repeat. Eventually self-replicators emerge and spread.
+
+### BFF instruction set
+
+BFF replaces Brainfuck's I/O with copying between two heads on a shared tape:
 
 | Command | Description |
 |---------|-------------|
-| `>` `<` | Move head0 right/left |
-| `}` `{` | Move head1 right/left |
-| `+` `-` | Increment/decrement byte at head0 |
-| `.` | Copy byte from head0 position to head1 position |
-| `,` | Copy byte from head1 position to head0 position |
-| `[` | Jump past matching `]` if byte at head0 is 0 |
-| `]` | Jump back to matching `[` if byte at head0 is not 0 |
-
-**Note:** Standard Brainfuck's I/O commands (`.` and `,`) are repurposed for copying between heads.
+| `>` `<` | Move head0 right / left |
+| `}` `{` | Move head1 right / left |
+| `+` `-` | Increment / decrement the byte at head0 |
+| `.` | Copy the byte at head0 to head1 |
+| `,` | Copy the byte at head1 to head0 |
+| `[` | Jump past the matching `]` if the byte at head0 is 0 |
+| `]` | Jump back to the matching `[` if the byte at head0 is not 0 |
 
 ### Execution semantics
 
-Both heads and the program counter start at 0; heads wrap modulo 128; non-instruction bytes are skipped. A tape stops when the program counter leaves the tape, a bracket is unmatched, or the step budget (`--max-steps`, default 32768) is spent.
+Both heads and the program counter start at 0; heads wrap modulo 128; non-instruction bytes are skipped. A tape stops when the program counter leaves the tape, a bracket is unmatched, or the step budget (`--max-steps`; the paper uses 8192) is spent.
 
-The interpreter also stops a program that is **provably stuck**: once the tape has stopped changing, the machine state is just (program counter, head0, head1), and if that state recurs the program loops forever without writing again, so the tape is already final. This is detected with Brent's cycle algorithm and gives exactly the same tapes as running out the budget, about 9x faster on a mature soup where most tapes spin. The only visible effect is that "instructions per tape" counts useful work rather than spinning, so it no longer jumps into the thousands for stuck programs.
+The interpreter also stops a program that is **provably stuck**: once the tape has stopped changing, the machine state is just (program counter, head0, head1), and if that state recurs the program loops forever without writing again, so the tape is already final. This is detected with Brent's cycle algorithm and yields exactly the same tapes as running out the budget (`tests/test_kernel.py` checks it against a plain reference interpreter), about 9x faster on a mature soup where most tapes spin. The only visible effect is that "instructions per tape" counts useful work rather than spinning.
 
-### Emergent Replicators
+### Emergent replicators
 
-A replicator that emerges may look like the following and often has a palindrome-like pattern:
+A replicator that emerges often has a palindrome-like shape, for example
 
 ```
 {[<},]],}<[{
 ```
 
-**How it works:**
-1. `{` — Move head1 left (wraps to position 127)
-2. `[<},]` — Copy loop:
-   - `[` — Start loop (exits when byte at head0 is 0)
-   - `<` — Move head0 (destination) left
-   - `}` — Move head1 (source) right
-   - `,` — Copy byte from head1 to head0
-   - `]` — Jump back to `[` if byte at head0 ≠ 0
-3. `]` — End outer structure
-4. `}<[{` — Near-mirror of the start
+`{` moves head1 left (wrapping to position 127), then `[<},]` is the copy loop: move the destination head0 left, move the source head1 right, copy from head1 to head0, and repeat while the byte under head0 is non-zero. When two programs meet on a tape,
 
-**Why palindrome structure?**
-
-When two programs meet on a 128-byte tape:
 ```
 |  Program A (0-63)  |  Program B (64-127)  |
-     ↑ head1 (source)     ↑ head0 (destination)
+     head1 (source)      head0 (destination)
 ```
 
-The replicator **copies itself backwards** into the other program's space. The palindrome structure ensures that when concatenated with another copy, the combined tape still contains a valid copy loop — making it robust to being "cut" at different points.
+the replicator copies itself backwards into the other program's space, and the near-mirror structure keeps a valid copy loop whichever way the tape is cut.
 
-## Files
+Run 44 of this fork produced a variant of this mechanism: a 24-instruction program, `<[[[[[,,.[.[[}<,]],<}[,<`, that writes its **mirror image** into the partner whenever it is the first half of the tape, and never copies as the second half. Its population therefore alternates between the key and its reverse, in lockstep, and hovered around 10% of the soup instead of taking over. The tooling recognises mirror copies in lineage traces and merges mirror pairs into one family.
 
-| File | Description |
-|------|-------------|
-| `bff_soup.py` | Numba-accelerated simulation. Writes a run directory with metrics, checkpoints and lineage records |
-| `bff_core.py` | Shared machinery: BFF interpreter kernels, program keys, self-replication test, checkpoint I/O |
-| `bff_lineage.py` | Lineage recording (species births, per-slot change records, species counts) |
-| `bff_query.py` | Query layer and CLI: search, species, lineage, slot history, exact replay |
-| `bff_web.py` + `web/` | Local web viewer |
-| `bff_archive.py` | Builds the durable run archive (winners, families, emergence story) |
-| `bff_compare.py` | Cross-run analytics over archives |
-| `bff_analysis.py` | Most common programs in a checkpoint, with self-replication scores |
-| `visualize_bff.py` | Real-time ASCII visualization of entropy and compression |
-| `testdata/` | A few raw replicators from an earlier run, used as test fixtures |
+## The simulator
 
-## Quick Start
-
-```bash
-# Set up (Python 3.11+; numba, numpy, brotli)
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# Run simulation with 131k programs (as used in the paper); ~17 epochs/sec pre-transition on an M2
-python3 bff_soup.py --num 131072 --epochs 40000 --seed 42
-
-# In a separate terminal, watch the progress
-python3 visualize_bff.py runs/42
-python3 visualize_bff.py runs/42 --last 500     # zoom in on the last 500 epochs
-```
-
-### The run directory
+### Run directory
 
 Every run writes to `runs/<seed>` (or `--run-dir`):
 
 | Path | Content |
 |------|---------|
-| `meta.json` | All parameters, resume history, stop-condition events |
-| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, ops per pair, unique species, top species share, key changes, new species, self-replicating slots |
-| `checkpoints/*.dat` | Full soup every `--checkpoint-interval` epochs (format v2: JSON header + raw bytes) |
+| `meta.json` | All parameters, resume history, stop-condition events, recording statistics |
+| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots, elapsed time |
+| `checkpoints/*.dat` | The soup every `--checkpoint-interval` epochs (JSON header + raw bytes). File `0` is the initial soup, file `e` the soup after epoch `e`. |
 | `changes.bin` | Change records (epoch, slot, partner slot, new key hash) for slots that changed to a recorded species, plus every slot at epoch 0 |
-| `species.db` | SQLite: recorded species with their birth event (epoch, slot, partner, both parent keys), key texts of snapshot species, species counts every `--species-interval` epochs, self-replication scores |
+| `species.db` | SQLite: recorded species with their birth event, key texts of snapshot species, species counts every `--species-interval` epochs, self-replication scores |
 | `pending.npz` | The recorder's rolling window, saved on exit so a resume from the final checkpoint continues exactly |
 
-Programs are identified by their **key**: the program with all non-instruction bytes removed. Slots are stable identities: the soup is never reordered, so the change records of one slot form its line of descent.
+Run directories are large (about 8 MB per checkpoint) and are not committed; the durable output is the archive, see below.
 
-**Which species get recorded.** A pre-transition soup produces thousands of never-repeated keys per epoch, so births are held in a rolling window of `--lineage-window` epochs and a species is written to the database only once it occupies `--promote-count` slots at the same time (it has been copied repeatedly), together with its pending ancestors (nearest first, up to `--cascade-depth` generations and `--cascade-max` rows per promotion). The promotion flags may be changed when resuming a run. Keys shorter than `--lineage-min-len` instructions are the random background and are never tracked individually, but their text is stored wherever they are the parent of a recorded species.
+### Program identity and what gets recorded
+
+Programs are identified by their **key**: the program with all non-instruction bytes removed. Slots are stable identities, so the change records of one slot form its line of descent. A species' **birth** is the first execution that produced its key; the birth row stores the epoch, the slot, the partner slot, and the keys both tape halves held before the execution (the "parent", what the slot held, and the "partner").
+
+An active pre-transition soup produces tens of thousands of never-repeated keys per epoch, so births are held in a rolling window of `--lineage-window` epochs and a species is written to the database only once it occupies `--promote-count` slots at the same time, together with its pending ancestors (nearest first, up to `--cascade-depth` generations and `--cascade-max` rows). Keys shorter than `--lineage-min-len` instructions are the random background and are never tracked individually, but their text is stored wherever they are the parent of a recorded species. Change records are kept only for recorded species, up to `--lineage-budget-mb`. The promotion flags may be changed when resuming.
 
 ### Determinism and resuming
 
-The pairing of every epoch is derived from `(seed, epoch)`, so a run resumed from any checkpoint reproduces exactly the trajectory the uninterrupted run would have taken. Resuming keeps the run's recorded settings; only `--epochs`, the stop conditions and `--print-interval` apply. Resuming from the final checkpoint of a stopped run restores the recorder's window too, so the result is identical to an uninterrupted run; resuming from an earlier checkpoint starts the window empty (noted in `meta.json`).
+The pairing of every epoch derives from `(seed, epoch)`, so a run resumed from any checkpoint reproduces exactly the trajectory the uninterrupted run would have taken. Resuming keeps the run's recorded settings; only `--epochs`, the stop conditions, `--print-interval` and the recording policy flags apply. Resuming from the final checkpoint of a stopped run restores the recorder's window too, so the result is identical to an uninterrupted run; from an earlier checkpoint the window starts empty (noted in `meta.json`).
 
 ```bash
-python3 bff_soup.py --resume runs/42 --epochs 60000                 # latest checkpoint
-python3 bff_soup.py --resume runs/42/checkpoints/0000010240.dat     # a specific one
+python3 bff_soup.py --resume runs/44 --epochs 80000                 # latest checkpoint
+python3 bff_soup.py --resume runs/44/checkpoints/0000010240.dat     # a specific one
 ```
 
-### Command-line Options
+### Command-line options
 
 ```
 simulation:
-  --num N               Number of programs (default: 1024)
+  --num N               Number of programs, even (default: 1024)
   --epochs N            Run until this epoch number (default: 10000)
   --seed N              Random seed (default: 42)
   --mutation-prob P     Per-byte mutation probability per epoch (default: 0; paper: 0.000244)
-  --max-steps N         Step budget per tape execution (default: 32768; paper/cubff: 8192)
+  --max-steps N         Step budget per tape execution (default: 32768; paper: 8192)
+  --seed-programs F.npy[:N]  Plant N copies of the programs in F (n x 64 uint8) into random slots
 output:
   --run-dir DIR         Run directory (default: runs/<seed>)
   --resume PATH         Run directory or checkpoint file to resume from
@@ -141,33 +131,32 @@ output:
   --species-interval N  Epochs between species-count snapshots (default: 32)
   --selfrep-interval N  Epochs between self-replication tests (default: 256)
   --selfrep-top K       Most common species to test (default: 512)
-  --lineage-min-len L   Track births/changes only for keys with >= L instructions (default: 8)
+  --lineage-min-len L   Track births only for keys with >= L instructions (default: 8)
   --lineage-window N    Epochs a birth is remembered while waiting to be promoted (default: 128)
   --promote-count K     Record a species once it occupies K slots at once (default: 6)
   --cascade-depth D     Generations of pending ancestors recorded with it (default: 12)
   --cascade-max M       Ancestors recorded per promotion, nearest first (default: 24)
   --lineage-budget-mb M Stop appending change records at this file size (default: 2048)
-  --seed-programs F.npy[:N]  Plant N copies of the programs in F into random slots (experiments)
   --metric-interval N   Epochs between compression metrics (default: 1)
   --metric-sample N     Programs to compress for the metrics (default: 0 = whole soup)
+  --no-archive          Do not build archive/<run>.json on exit
 stop conditions (optional):
-  --stop-entropy X      Stop when higher-order entropy exceeds X
+  --stop-entropy X      Stop when higher-order entropy exceeds X (may fire a few epochs late)
   --stop-share X        Stop when one species exceeds X percent of the soup
   --stop-selfreps N     Stop when at least N slots hold a self-replicator
   --stop-after N        Keep running N more epochs after a stop condition fires
-  --no-archive          Do not build archive/<run>.json on exit
 ```
 
-### Analyzing Results
+### Performance notes
 
-```bash
-python3 bff_analysis.py runs/42 --top 10                    # latest checkpoint of the run
-python3 bff_analysis.py runs/42/checkpoints/0000012800.dat  # a specific checkpoint
-```
+The interpreter runs in parallel on all cores (Numba); the recorder and metrics run alongside it, with compression in background threads. Per epoch on a 131k soup: interpreter 7-25 ms depending on activity, recorder 5-15 ms depending on how many new keys appear.
 
-Each listed program comes with its **self-replication score**, the cubff test: the program is paired with 13 random partners, run for 5 generations each, and the score is the number of tape bytes that stay stable. A score of 5 or more means the program reliably copies itself; a perfect replicator scores 64.
+- `--max-steps 8192` (the paper's value) makes a busy soup about 4x cheaper than the original default of 32768.
+- `--metric-sample 32768` compresses a 2 MB sample instead of the whole 8 MB soup; the entropy value differs by a few thousandths and the metric leaves the critical path.
+- Memory is dominated by the recorder's window: roughly candidates-per-epoch x window x 224 bytes, typically 1-4 GB at 131k programs.
+- Two runs in parallel should each get half the cores: `NUMBA_NUM_THREADS=6 python3 bff_soup.py ...`.
 
-## Analysis Tools
+## Analysis tools
 
 ### Web viewer
 
@@ -176,23 +165,44 @@ python3 bff_web.py                 # serves runs/ on http://localhost:8765/ and 
 python3 bff_web.py --runs runs --port 8765 --no-browser
 ```
 
-Works while a simulation is running. Tabs:
+Works while a simulation is running; the overview auto-refreshes.
 
 | Tab | What it shows |
 |-----|---------------|
-| Overview | Entropy, bits per byte, instructions per tape, unique species, top species share, self-replicator count over time, with the transition marked. Auto-refreshes on a running run. |
-| Species | Stacked area of the top species over time (Muller-style), and a snapshot table at any recorded epoch with details / lineage / run links |
-| Search | Exact, substring, regex or fuzzy (edit distance) search over recorded species, or over the keys present in a checkpoint. Click a result for its birth event, count history and self-replication history. |
-| Lineage | Ancestry tree of a species: each node shows where and when it was born, which key the slot held before ("parent") and which key shared the tape ("partner"), with edit distances marking the primary ancestor |
-| Stepper | Animated BFF interpreter. Load two programs by hand, run a species against random partners, or replay the exact tape on which a species was born, then step through it with the program counter and both heads highlighted. "Next generation" moves the second half into the first and pairs it with fresh random bytes, like the self-replication test. |
+| Overview | Entropy, bits per byte, instructions per tape, unique species, top species share and self-replicator count over time, with the transition marked and a zoomable range |
+| Species | Stacked area of the top species over time (Muller-style) and a snapshot table at any recorded epoch with details / lineage / run links |
+| Search | Exact, substring, regex or fuzzy (edit distance) search over recorded species, or over the keys present in a checkpoint. A result opens its birth event, count history and self-replication history. |
+| Lineage | Ancestry tree of a species: where and when it was born, which key the slot held before ("parent") and which key shared the tape ("partner"), with edit distances marking the primary ancestor and mirror copies labelled |
+| Stepper | Animated BFF interpreter: load two programs by hand, run a species against random partners, or replay the exact tape on which a species was born, then step through it with the program counter and both heads highlighted. "Next generation" moves the second half into the first and pairs it with fresh random bytes; "Test self-replication" runs the cubff test on both halves. |
+
+### Command line
+
+```bash
+python3 bff_query.py info    runs/44
+python3 bff_query.py top     runs/44 --epoch 5000 --n 20                 # most common species at a snapshot
+python3 bff_query.py search  runs/44 ',<}[[.[.,,' --mode substring      # also exact | regex | fuzzy --max-dist 2
+python3 bff_query.py search  runs/44 '<,,,}' --epoch 2048               # keys in the checkpoint at/below that epoch
+python3 bff_query.py species runs/44 '<[[[[[,,.[.[[}<,]],<}[,<'         # birth event, counts, selfrep history
+python3 bff_query.py lineage runs/44 '<[[[[[,,.[.[[}<,]],<}[,<' --depth 8
+python3 bff_query.py slot    runs/44 120718 --before 1100 [--trace]     # what one slot held over time
+python3 bff_query.py tape    runs/44 --epoch 1084 --slot 120718         # exact tape before/after, replayed
+python3 bff_analysis.py runs/44 --top 10                                # most common programs in the latest checkpoint
+python3 visualize_bff.py runs/44 [--last 500]                           # terminal monitor (also reads cubff logs)
+```
+
+Add `--json` before a `bff_query.py` subcommand for machine-readable output. Replaying a tape re-executes the epochs since the nearest checkpoint (up to 256), which takes seconds on a 131k soup and competes with a running simulation for CPU.
+
+**Lineage semantics.** The *parent* is what the slot held before the birth execution and the *partner* is the other half of the tape; whichever is closer by edit distance is marked primary. Distances are also computed against the reversed keys, because a replicator often writes its mirror image into the partner; such births are labelled mirror copies. Ancestors older than the recording window when a species was promoted are not recorded, but their text is stored in the child's birth row, so a chain never ends blind.
+
+**Self-replication score** (from cubff): the program is paired with 13 random partners and run for 5 generations each; the score is the number of tape bytes that stay stable. 5 or more counts as a replicator; a perfect replicator scores 64. Note that an organism is its whole 64 bytes: the same instruction string padded with zeros usually does not replicate, because the loops read the data bytes under the heads.
 
 ### Run archives and cross-run analytics
 
-The run directory is a large working set. The durable output of a run is its **archive**, one JSON file of a few hundred KB written to `archive/<run>.json` (run results are not committed to this repository) when the simulation finishes or is stopped (also `python3 bff_archive.py runs/42` at any time). It contains:
+The run directory is a large working set. The durable output of a run is its **archive**, one JSON file of a few hundred KB written to `archive/<run>.json` when the simulation finishes or is stopped (or with `python3 bff_archive.py runs/44` at any time). Archives are not committed to this repository. An archive contains:
 
-- run facts and event epochs: transition (entropy > 3), first self-replicator, share crossings
+- run facts and event epochs: transition (entropy > 3), first self-replicator, top-species share crossings
 - the top 20 species at the end and at 256, 1024 and 4096 epochs after the transition, each with raw bytes, share, self-replication score and birth
-- **families**: the winners clustered into variants of one core (edit distance ≤ 3), with a functional profile of the representative (instruction usage, writing head, instructions per execution, faithful generations)
+- **families**: the winners clustered into variants of one core (edit distance ≤ 3, up to reversal), with a functional profile of the representative: instruction usage, writing head, instructions per execution, faithful generations, direct or mirror copying
 - the emergence story: the ancestry tree of each family's representative, and for the five leading families the exact tapes of the birth events along the primary ancestor line
 - the metrics log, decimated, at full resolution around the transition
 
@@ -201,81 +211,45 @@ python3 bff_compare.py                 # table of all archived runs
 python3 bff_compare.py --families      # leading family cores across runs, recurring cores, edit distances
 ```
 
-### Command line
+## Metrics
+
+**Higher-order entropy**, the paper's complexity measure: `H0 − bits per byte after compression`, where H0 is the Shannon entropy of the byte distribution and the compressor is Brotli at quality 2 (as in the paper; zlib if brotli is not installed). Random soup: about 0. Structured soup: above 3, because repeated replicators compress well. A sudden spike is the phase transition.
+
+**Bits per byte** after compression: 8 for random noise, below 4 once replicators dominate.
+
+**Instructions per tape**: useful work per execution (stuck programs are not counted). Rises as copy loops spread.
+
+**Unique species**, **top species share** and **self-replicating slots** (from the periodic cubff test of the most common species) describe the population directly. Before a transition the top species is usually a short background key; the archive ignores those when it dates share crossings.
+
+## Tests
 
 ```bash
-python3 bff_query.py info    runs/42
-python3 bff_query.py top     runs/42 --epoch 39424 --n 20
-python3 bff_query.py search  runs/42 '[[<,,,}]]' --mode substring      # also exact | regex | fuzzy
-python3 bff_query.py search  runs/42 '<,,,}' --epoch 12800              # keys in the checkpoint at/below that epoch
-python3 bff_query.py species runs/42 '[[<,,,}]]}}]]},,,<[['
-python3 bff_query.py lineage runs/42 '[[<,,,}]]}}]]},,,<[[' --depth 8
-python3 bff_query.py slot    runs/42 12345 --before 39000 [--trace]
-python3 bff_query.py tape    runs/42 --epoch 39301 --slot 12345         # exact tape before/after, replayed
+python3 tests/test_kernel.py
 ```
 
-Add `--json` before the subcommand for machine-readable output. Replaying a tape re-executes the epochs since the nearest checkpoint (up to 256), which takes seconds on a 131k soup and competes with a running simulation for CPU.
+Checks the interpreter against a plain reference implementation on random and replicator tapes, the self-replication scores of the fixture replicators in `testdata/`, replay exactness against saved checkpoints, the hash map used by the recorder, and mirror-aware family clustering.
 
-**Lineage semantics.** A species' *birth* is the first execution that produced its key. The *parent* is what the slot held before that execution and the *partner* is the other half of the tape; whichever is closer by edit distance is marked primary. Distances are also computed against the reversed keys, because a replicator often writes its mirror image into the partner; such births are labelled mirror copies, and the archive's families merge a key with its reverse. Ancestors older than the recording window when the species was promoted are not recorded, but their text is stored in the child's birth row, so a chain never ends blind.
+## Project layout
 
-## Running with cubff (C++ Implementation)
+| File | Description |
+|------|-------------|
+| `bff_soup.py` | The simulation: run directories, replay-exact pairing, metrics, recording, stop conditions, archive on exit |
+| `bff_core.py` | Interpreter kernels, program keys, self-replication test, checkpoint I/O, metrics |
+| `bff_lineage.py` | Lineage recording: species births, change records, snapshots |
+| `bff_hash.py` | Vectorised hash map used by the recorder |
+| `bff_query.py` | Query layer and CLI: search, species, lineage, slot history, replay |
+| `bff_web.py`, `web/` | Local web viewer |
+| `bff_archive.py` | Run archives (winners, families, emergence story) |
+| `bff_compare.py` | Cross-run analytics over archives |
+| `bff_analysis.py` | Most common programs in a checkpoint, with self-replication scores |
+| `visualize_bff.py` | Terminal monitor of a run's metrics log |
+| `tests/`, `testdata/` | Regression tests and fixture programs from an earlier run |
 
-For maximum speed, the [cubff](https://github.com/paradigms-of-intelligence/cubff) C++ implementation is ~4x faster than this Python version:
+## Related
 
-```bash
-# Clone and build
-git clone https://github.com/paradigms-of-intelligence/cubff.git
-cd cubff && mkdir build && cd build
-cmake .. -DCUDA=OFF
-make -j$(nproc)
-
-# Run (outputs to stdout in CSV format)
-./main --lang bff_noheads --soup-size 1024 --print-interval 64 > ../bff_run.log &
-
-# Use the same visualizer
-cd ..
-python3 visualize_bff.py bff_run.log
-```
-
-## Metrics Explained
-
-The simulation tracks two metrics based on compression (Brotli quality 2 on the whole soup, as in the paper; falls back to zlib if brotli is not installed):
-
-**Higher-Order Entropy** (complexity metric, as used in the paper):
-```
-entropy = H0 - bpb
-```
-Where H0 is Shannon entropy and bpb is bits-per-byte after compression.
-- Measures "bits saved per byte" through compression beyond simple character frequencies
-- **Random soup ≈ 0**: Incompressible noise, no patterns
-- **Structured soup > 3**: Repetitive patterns (replicators) compress well
-- A sudden spike indicates phase transition — replicators have taken over
-
-**Bits per Byte** (compression ratio):
-```
-bpb = compressed_size × 8 / original_size
-```
-- Inverse of entropy: how many bits needed per byte after compression
-- **Random soup ≈ 8 bpb**: No compression possible
-- **Structured soup < 5 bpb**: Significant compression = replicators present
-
-## What to Look For
-
-In the visualizer:
-- **🔴 Pre-life**: Entropy near 0, ~8 bpb, random noise
-- **🟡 Evolving**: Entropy 1-3, structure forming
-- **🟢 TRANSITION**: Entropy spikes to 4-6, bpb drops below 4, replicators have emerged!
-
-A successful transition typically shows:
-- Sudden entropy spike (0 → 4+)
-- Bits per byte drops (8 → 4 or lower)
-- Instructions per tape rise as copy loops take over
-
-## References
-
-- Paper: [arXiv:2406.19108](https://arxiv.org/abs/2406.19108)
-- Original implementation: [github.com/paradigms-of-intelligence/cubff](https://github.com/paradigms-of-intelligence/cubff)
-- Sean Carroll interview: [Mindscape Podcast](https://www.preposterousuniverse.com/podcast/2024/07/22/283-blaise-aguera-y-arcas-on-the-emergence-of-replication-and-computation/)
+- The paper: [arXiv:2406.19108](https://arxiv.org/abs/2406.19108)
+- The authors' implementation: [paradigms-of-intelligence/cubff](https://github.com/paradigms-of-intelligence/cubff) (C++/CUDA, several languages). Its self-replication test is ported here, and `visualize_bff.py` reads its CSV logs.
+- Sean Carroll's interview with Blaise Agüera y Arcas: [Mindscape 283](https://www.preposterousuniverse.com/podcast/2024/07/22/283-blaise-aguera-y-arcas-on-the-emergence-of-replication-and-computation/)
 
 ## License
 
