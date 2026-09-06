@@ -637,6 +637,9 @@ def main(argv=None):
     s = sub.add_parser('info', help='run summary')
     s.add_argument('run')
 
+    s = sub.add_parser('variants', help='split the non-replicating near-variants of the dominant replicator into hijackers, killers and debris')
+    s.add_argument('run'); s.add_argument('--epoch', type=int, default=None, help='checkpoint at/below this epoch (default: latest)')
+
     a = p.parse_args(argv)
     run = Run(a.run)
     t0 = time.time()
@@ -733,6 +736,21 @@ def main(argv=None):
                 print(f"{r['count']:7d} {100 * r['share']:6.2f}% {str(r['length'] if r['length'] is not None else '?'):>4} "
                       f"{str(r['first_epoch'] if r['first_epoch'] is not None else '-'):>7} {sr:>7}  "
                       f"{r['key'] if r['key'] is not None else '(untracked short key)'}")
+
+    elif a.cmd == 'variants':
+        ck_epoch, soup = run.checkpoint_at_or_before(a.epoch if a.epoch is not None else run.last_epoch())
+        res = core.classify_variants(soup, run.max_steps, run.heads)
+        if a.json:
+            print(json.dumps({'epoch': ck_epoch, **(res or {})}, indent=2, default=_json_default))
+        elif res is None:
+            print(f"checkpoint {ck_epoch}: no self-replicator among the 512 most common species")
+        else:
+            print(f"checkpoint {ck_epoch}: dominant host {res['host_key']} ; replicators hold {100 * res['host_share']:.1f}% of the soup")
+            for kind, label in (('hijacker', 'hijackers (copied over a host they precede: parasites)'),
+                                ('killer', 'killers (destroy such a host, not copied)'), ('debris', 'debris (the host survives)')):
+                print(f"  {100 * res['shares'][kind]:5.1f}%  {res['species'][kind]:3d} species  {label}")
+                for k, cnt in res['examples'][kind][:3]:
+                    print(f"          {cnt:6d}  {k}")
 
     elif a.cmd == 'tape':
         t = run.tape_at(a.epoch, a.slot)

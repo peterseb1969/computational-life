@@ -97,7 +97,7 @@ Every run writes to `runs/<seed>` (or `--run-dir`):
 | Path | Content |
 |------|---------|
 | `meta.json` | All parameters, resume history, stop-condition events, recording statistics |
-| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots, parasite load (slots of non-replicating near-variants of a replicator), elapsed time |
+| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots, parasite load (slots held by non-replicating near-variants of a replicator, whether they hijack, kill or are inert; `bff_query.py variants` separates them), elapsed time |
 | `checkpoints/*.dat` | The soup every `--checkpoint-interval` epochs (JSON header + raw bytes). File `0` is the initial soup, file `e` the soup after epoch `e`. |
 | `changes.bin` | Change records (epoch, slot, partner slot, new key hash) for slots that changed to a recorded species, plus every slot at epoch 0 |
 | `species.db` | SQLite: recorded species with their birth event, key texts of snapshot species, species counts every `--species-interval` epochs, self-replication scores |
@@ -206,6 +206,7 @@ python3 bff_query.py species runs/44 '<[[[[[,,.[.[[}<,]],<}[,<'         # birth 
 python3 bff_query.py lineage runs/44 '<[[[[[,,.[.[[}<,]],<}[,<' --depth 8
 python3 bff_query.py slot    runs/44 120718 --before 1100 [--trace]     # what one slot held over time
 python3 bff_query.py tape    runs/44 --epoch 1084 --slot 120718         # exact tape before/after, replayed
+python3 bff_query.py variants runs/44 --epoch 1536                       # near-variants of the host: hijackers / killers / debris
 python3 bff_analysis.py runs/44 --top 10                                # most common programs in the latest checkpoint
 python3 visualize_bff.py runs/44 [--last 500]                           # terminal monitor (also reads cubff logs)
 ```

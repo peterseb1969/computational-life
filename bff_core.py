@@ -435,10 +435,12 @@ def edit_distance(a, b):
 
 def parasite_load(keys, counts, scores, threshold=SELFREP_THRESHOLD, max_dist=4):
     """
-    Slots held by parasite candidates: species that fail the self-replication test but lie
-    within `max_dist` edits (up to reversal) of a species that passes, such as a host minus
-    the bracket that closes its loop. keys: list of instruction strings; counts, scores: arrays.
-    Returns (parasite_slots, number_of_candidate_species).
+    Slots held by non-replicating near-variants of a replicator: species that fail the
+    self-replication test but lie within `max_dist` edits (up to reversal) of a species that
+    passes, such as a host minus the bracket that closes its loop. This is the *candidate*
+    load: it mixes true parasites (copied over a host they precede), killers (destroy such a
+    host without being copied) and harmless debris; classify_variants() separates them.
+    keys: list of instruction strings; counts, scores: arrays. Returns (slots, species).
     """
     keys = list(keys)
     hosts = [i for i, s in enumerate(scores) if s >= threshold]
@@ -458,6 +460,61 @@ def parasite_load(keys, counts, scores, threshold=SELFREP_THRESHOLD, max_dist=4)
                 n_cand += 1
                 break
     return int(slots), n_cand
+
+
+def _near(a, b, d):
+    return abs(len(a) - len(b)) <= d and (edit_distance(a, b) <= d or edit_distance(a, b[::-1]) <= d)
+
+
+def classify_variants(soup, max_steps, heads=False, top=512, trials=8, max_dist=4, seed=0):
+    """
+    Split the non-replicating near-variants of the dominant replicator by what they do to a
+    host that follows them on a tape:
+      hijacker  the host's slot ends up holding the variant (a parasite in the strict sense)
+      killer    the host is destroyed but the variant is not copied
+      debris    the host survives
+    Returns dict(host_key, host_share, shares={kind: share of soup}, species={kind: count},
+    examples={kind: [(key, count), ...]}), or None when the soup has no replicator.
+    """
+    rng = np.random.default_rng(seed)
+    h, _ = compute_keys(soup)
+    u, f, cnt = unique_counts(h)
+    order = np.argsort(-cnt, kind='stable')[:top]
+    reps = soup[f[order]]
+    sc = selfrep_test(reps, seed=0, max_steps=max_steps, heads_init=heads)
+    keys = [program_key(p) for p in reps]
+    hosts = [i for i in range(len(keys)) if sc[i] >= SELFREP_THRESHOLD]
+    if not hosts:
+        return None
+    dom = hosts[0]
+    hk = keys[dom]
+    host_idx = np.flatnonzero(h == u[order][dom])
+    n = soup.shape[0]
+    shares = {'hijacker': 0, 'killer': 0, 'debris': 0}
+    species = {'hijacker': 0, 'killer': 0, 'debris': 0}
+    examples = {'hijacker': [], 'killer': [], 'debris': []}
+    for i, k in enumerate(keys):
+        if sc[i] >= SELFREP_THRESHOLD or not k:
+            continue
+        if not any(_near(k, keys[j], max_dist) for j in hosts):
+            continue
+        hij = kill = 0
+        for _ in range(trials):
+            host = soup[host_idx[rng.integers(host_idx.size)]]
+            t = np.concatenate([reps[i], host])
+            evaluate(t, max_steps, heads)
+            after = program_key(t[TAPE_SIZE:])
+            if _near(after, k, 2):
+                hij += 1
+            elif not _near(after, hk, 2):
+                kill += 1
+        kind = 'hijacker' if hij >= trials / 2 else ('killer' if kill >= trials / 2 else 'debris')
+        shares[kind] += int(cnt[order][i])
+        species[kind] += 1
+        if len(examples[kind]) < 5:
+            examples[kind].append((k, int(cnt[order][i])))
+    return {'host_key': hk, 'host_share': float(cnt[order][sc >= SELFREP_THRESHOLD].sum() / n),
+            'shares': {k: v / n for k, v in shares.items()}, 'species': species, 'examples': examples}
 
 
 # ---------------------------------------------------------------------------
