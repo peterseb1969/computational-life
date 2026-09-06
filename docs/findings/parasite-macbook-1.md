@@ -112,6 +112,21 @@ Nothing in the soup at epoch 80,000 replicates, but nothing prevents a new repli
 python3 bff_soup.py --resume runs/macbook-1 --epochs 130000
 ```
 
+## Watch it happen in the stepper
+
+The viewer's Stepper tab replays the hijack with real bytes, instruction by instruction.
+
+1. Start the viewer with `python3 bff_web.py` and pick run `macbook-1`. Open the **Stepper** tab.
+2. Type the parasite's key `[..{>>{..[` into **Program A**, the replicator's key `[..{>]]>{..[` into **Program B**, and `56000` into **at epoch** (both species are abundant in the checkpoint at 55,808; at the latest checkpoint the replicator is extinct).
+3. Click **A from soup**, then **B from soup**. Each field now holds the raw 64 bytes of a real instance as hex. Real bytes matter: a key typed as a bare instruction string is padded with zeros, and the copy loop stops at the first zero it meets.
+4. Click **Load**. The tape shows the parasite in the first half, the replicator in the second. Both heads start on cell 0.
+5. **Step** through the parasite's prefix and watch the heads: `{` moves head1 (red) to cell 127, the two `>` move head0 (blue) to cell 2, the next `{` brings head1 to cell 126, the two `.` write cell 2 into cell 126, and the final `[` enters a loop that has no end.
+6. Keep stepping. The program counter (green outline) walks through the parasite's data bytes and crosses into the second half at step 64, with head0 still on cell 2 and head1 on cell 126. The replicator's own `[..{>]]>` now executes.
+7. Click **Play**. Each iteration of the replicator's loop copies one byte from head0, moving right through the parasite, to head1, moving left through the replicator's own body. The orange "just written" marker walks down through the second half. When execution halts, **keys now** shows `[..{>>{..[` in both halves: the parasite has been copied over the host by the host's loop.
+8. Click **Swap A/B**, then **Load**: with the replicator first, its loop copies the replicator over the parasite instead. Whoever runs first wins.
+9. Click **Test self-replication**: the replicator scores 63 of 64, the parasite 0. The parasite reproduces only in the presence of a host.
+10. To see where parasites come from, go to the **Search** tab, search for `[..{>>{..[`, open its details and click **Watch its birth in the stepper**. That loads the tape of epoch 49,473 in which a background program ran first, fell through into a replicator in the second half, and left behind the first parasite.
+
 ## Reproducing this analysis
 
 The run is deterministic: seed `macbook-1`, protocol `128k-8192`, reproduces it on any machine.

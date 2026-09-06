@@ -329,7 +329,7 @@ function parseProgram(text) {
   const out = new Uint8Array(64);
   const t = text.trim();
   if (!t) return null;
-  if (/^[0-9a-fA-F\s]+$/.test(t) && t.replace(/\s/g, '').length >= 4 && t.replace(/\s/g, '').length % 2 === 0 && !/^[0-9]*$/.test(t)) {
+  if (/^[0-9a-fA-F\s]+$/.test(t) && t.replace(/\s/g, '').length >= 4 && t.replace(/\s/g, '').length % 2 === 0) {
     const hex = t.replace(/\s/g, '');
     for (let i = 0; i < Math.min(64, hex.length / 2); i++) out[i] = parseInt(hex.substr(2 * i, 2), 16);
     return out;
@@ -400,6 +400,20 @@ $('#st-load').addEventListener('click', () => {
   loadTape(t, `typed programs${b ? '' : ' (B random)'}`);
 });
 $('#st-swap').addEventListener('click', () => { const a = $('#st-a').value; $('#st-a').value = $('#st-b').value; $('#st-b').value = a; });
+const toHex = (bytes) => Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+async function fromSoup(which) {
+  const field = $(which === 'A' ? '#st-a' : '#st-b');
+  const key = field.value.trim();
+  if (!key) { toast(`Type the species key into ${which} first`); return; }
+  try {
+    const p = await api('program', { key, epoch: $('#st-epoch').value });
+    if (!p) { toast(`No instance of that key in the checkpoint at/below that epoch (last checkpoint: try an earlier epoch)`); return; }
+    field.value = toHex(p.program);
+    toast(`${which}: raw instance from checkpoint epoch ${fmt(p.epoch)}, slot ${p.slot} (${fmt(p.count)} copies there)`);
+  } catch (e) { toast('failed: ' + e.message); }
+}
+$('#st-a-soup').addEventListener('click', () => fromSoup('A'));
+$('#st-b-soup').addEventListener('click', () => fromSoup('B'));
 
 async function watchBirth(epoch, slot) {
   toast(`Replaying epoch ${fmt(epoch)} from the nearest checkpoint… (this can take a while on a big soup)`, true);
@@ -412,7 +426,7 @@ async function watchBirth(epoch, slot) {
 }
 async function runSpecies(key) {
   try {
-    const p = await api('program', { key });
+    const p = await api('program', { key, epoch: $('#st-epoch').value });
     const t = new Uint8Array(128);
     if (p) { t.set(p.program, 0); $('#st-a').value = key; }
     else { t.set(parseProgram(key), 0); $('#st-a').value = key; toast('No raw copy in a checkpoint; using the instruction string with zero padding'); }

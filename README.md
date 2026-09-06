@@ -186,7 +186,7 @@ Works while a simulation is running; the overview auto-refreshes.
 | Species | Stacked area of the top species over time (Muller-style) and a snapshot table at any recorded epoch with details / lineage / run links |
 | Search | Exact, substring, regex or fuzzy (edit distance) search over recorded species, or over the keys present in a checkpoint. A result opens its birth event, count history and self-replication history. |
 | Lineage | Ancestry tree of a species: where and when it was born, which key the slot held before ("parent") and which key shared the tape ("partner"), with edit distances marking the primary ancestor and mirror copies labelled |
-| Stepper | Animated BFF interpreter: load two programs by hand, run a species against random partners, or replay the exact tape on which a species was born, then step through it with the program counter and both heads highlighted. "Next generation" moves the second half into the first and pairs it with fresh random bytes; "Test self-replication" runs the cubff test on both halves. |
+| Stepper | Animated BFF interpreter: load two programs by hand, run a species against random partners, or replay the exact tape on which a species was born, then step through it with the program counter and both heads highlighted. "A from soup" / "B from soup" replace a typed key by the raw bytes of a real instance from a checkpoint (real data bytes matter to copy loops); "Next generation" moves the second half into the first and pairs it with fresh random bytes; "Test self-replication" runs the cubff test on both halves. |
 
 ### Command line
 

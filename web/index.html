@@ -109,8 +109,11 @@
   <!-- ------------------------------------------------------------- Stepper -->
   <section id="tab-stepper" class="tab">
     <div class="toolbar">
-      <label>Program A <input id="st-a" type="text" class="mono" style="width:22em" placeholder="instructions, e.g. [[<,,,}]]}}]]},,,<[["></label>
-      <label>Program B <input id="st-b" type="text" class="mono" style="width:22em" placeholder="empty = random bytes"></label>
+      <label>Program A <input id="st-a" type="text" class="mono" style="width:20em" placeholder="instructions or hex bytes"></label>
+      <button id="st-a-soup" title="replace the key in A by the raw 64 bytes of a real instance from the soup">A from soup</button>
+      <label>Program B <input id="st-b" type="text" class="mono" style="width:20em" placeholder="empty = random bytes"></label>
+      <button id="st-b-soup" title="replace the key in B by the raw 64 bytes of a real instance from the soup">B from soup</button>
+      <label>at epoch <input id="st-epoch" type="number" style="width:7em" placeholder="latest"></label>
       <button id="st-load">Load</button>
       <button id="st-swap">Swap A/B</button>
       <span id="st-source" class="muted"></span>
