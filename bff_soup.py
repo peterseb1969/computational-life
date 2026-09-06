@@ -344,9 +344,14 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     t_last = t0
     epoch_last = start_epoch
     stop_at = None
-    culls = list(meta.get('culls', []))
     cull_dist = core.parse_init_dist(init_dist) if cull_replicators else None
+    culls_path = os.path.join(rd.path, 'culls.jsonl')       # one removal per line; meta.json keeps only the counts
+    culls = []
+    if cull_replicators and os.path.exists(culls_path):
+        with open(culls_path) as f:
+            culls = [json.loads(line) for line in f if line.strip()]
     origin_keys = [c['key'] for c in culls if c.get('origin')]      # one key per distinct lineage seen so far
+    n_removed = sum(1 for c in culls if c['kind'] == 'replicator')
     outcome = OutcomeDetector(num_programs) if stop_outcome else None
     selfrep_slots = -1
     selfrep_strict_slots = -1
@@ -407,16 +412,27 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 scores = core.selfrep_test(soup[first_idx[cand]], seed=epoch, max_steps=max_steps, heads_init=heads)
                 hits = np.flatnonzero(scores >= SELFREP_THRESHOLD)
                 if hits.size:
-                    # the replicators, plus every species in the soup within a few edits of one (the
-                    # debris a culled lineage re-forms from), the latter counted separately
+                    # A replicator is a lineage, not a key: a copier that copies only part of itself lives in
+                    # thousands of keys with varying junk. Remove every species in the soup that carries one
+                    # of the hit's copy loops or lies within a few edits of it (the lineage and the debris it
+                    # re-forms from); the tested hit is logged as the removal, the rest as its lineage.
+                    all_keys = None
                     doomed = {}
                     for k in hits:
                         i = cand[k]
                         key = core.program_key(soup[first_idx[i]])
+                        if int(i) in doomed:
+                            continue
                         doomed[int(i)] = (key, int(scores[k]), 'replicator')
-                        for j in core.near_variants(soup[first_idx], key, core.variant_distance(key)).tolist():
+                        loops = core.copy_loops(key)
+                        if all_keys is None:
+                            all_keys = [core.program_key(soup[j]) for j in first_idx]
+                        members = set(core.near_variants(soup[first_idx], key, core.variant_distance(key)).tolist())
+                        if loops:
+                            members.update(j for j, kj in enumerate(all_keys) if any(l in kj for l in loops))
+                        for j in members:
                             if j not in doomed:
-                                doomed[j] = (core.program_key(soup[first_idx[j]]), -1, 'variant')
+                                doomed[j] = (all_keys[j], -1, 'lineage')
                     for n_done, (i, (key, score, kind)) in enumerate(sorted(doomed.items())):
                         slots = np.flatnonzero(cur_hash == uniq[i])
                         rng = np.random.default_rng([int(seed), 3, int(epoch), n_done])
@@ -432,15 +448,21 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                             event['origin'] = new_origin
                             if new_origin:
                                 origin_keys.append(key)
+                            n_removed += 1
                         culls.append(event)
+                        with open(culls_path, 'a') as f:
+                            f.write(json.dumps(event) + '\n')
                         if kind == 'replicator':
-                            n_var = sum(1 for _, (_, _, kd) in doomed.items() if kd == 'variant')
-                            tag = f"origin {len(origin_keys)}" if new_origin else f"re-formation of an earlier origin"
-                            print(f"*** cull at epoch {epoch}: {tag}, {key!r} ({slots.size} copies, score {score}) "
-                                  f"replaced by random programs, with {n_var} near-variant species ***", flush=True)
+                            n_lin = sum(1 for _, (_, _, kd) in doomed.items() if kd == 'lineage')
+                            n_slots = sum(np.count_nonzero(cur_hash == uniq[j]) for j, (_, _, kd) in doomed.items() if kd == 'lineage')
+                            tag = f"origin {len(origin_keys)}" if new_origin else "re-formation of an earlier origin"
+                            print(f"*** cull at epoch {epoch}: {tag}, {key!r} ({slots.size} copies, score {score}); "
+                                  f"its lineage: {n_lin} more species, {n_slots} slots, all replaced by random programs ***",
+                                  flush=True)
                 if hits.size:
                     cur_hash, cur_len = core.compute_keys(soup)
-                    meta['culls'] = culls
+                    meta['cull_counts'] = {'removals': n_removed, 'origins': len(origin_keys),
+                                           'lineage_species': sum(1 for c in culls if c['kind'] == 'lineage')}
                     rd.write_meta(meta)
 
             changed = np.flatnonzero(cur_hash != prev_hash)
@@ -536,8 +558,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                     meta['stop_triggered'] = {'epoch': epoch, 'reason': reason, 'stop_at': stop_at}
                     rd.write_meta(meta)
             if cull_replicators and stop_at is None and len(origin_keys) >= cull_replicators:
-                reason = (f"culled {cull_replicators} distinct replicator origins "
-                          f"({sum(1 for c in culls if c['kind'] == 'replicator')} removals; origin-rate experiment)")
+                reason = f"culled {cull_replicators} distinct replicator origins ({n_removed} removals; origin-rate experiment)"
                 stop_at = epoch
                 print(f"*** {reason}; stopping ***", flush=True)
                 meta['stop_triggered'] = {'epoch': epoch, 'reason': reason, 'stop_at': stop_at}

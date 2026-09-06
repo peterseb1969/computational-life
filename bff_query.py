@@ -653,7 +653,13 @@ def main(argv=None):
     t0 = time.time()
 
     if a.cmd == 'culls':
-        ev = [c for c in run.meta.get('culls', []) if c.get('kind', 'replicator') == 'replicator']
+        path = os.path.join(run.rd.path, 'culls.jsonl')
+        if os.path.exists(path):
+            with open(path) as f:
+                events = [json.loads(line) for line in f if line.strip()]
+        else:
+            events = run.meta.get('culls', [])
+        ev = [c for c in events if c.get('kind', 'replicator') == 'replicator']
         if not ev:
             print("no replicators were removed in this run (was it started with --cull-replicators?)"); return
         # one lineage: keys within 3 edits of each other, or sharing an innermost copy loop
@@ -676,8 +682,9 @@ def main(argv=None):
         if a.json:
             print(json.dumps({'removals': len(ev), 'origins': [{'epoch': e, 'removals': len(f), 'keys': [ev[i]['key'] for i in f]}
                                                                 for e, f in origins], 'last_epoch': last}, indent=1)); return
-        print(f"{len(ev)} replicators removed over {last + 1} epochs; {len(origins)} distinct origins "
-              f"(removed keys within 3 edits of each other or sharing a copy loop count as one lineage re-forming)")
+        n_lin = sum(1 for c in events if c.get('kind') == 'lineage')
+        print(f"{len(ev)} replicators removed over {last + 1} epochs ({n_lin} further species removed as their lineages); "
+              f"{len(origins)} distinct origins (removed keys within 3 edits of each other or sharing a copy loop count as one lineage re-forming)")
         print(f"{'origin':>7} {'first':>7} {'removals':>8}  first key")
         for e, f in origins:
             print(f"{origins.index((e, f)) + 1:7d} {e:7d} {len(f):8d}  {ev[min(f, key=lambda i: ev[i]['epoch'])]['key']}")
