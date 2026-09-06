@@ -79,7 +79,7 @@ def print_table(rows):
             ('first_selfrep', 13), ('transition', 10), ('plateau', 8), ('final_entropy', 13),
             ('top_share', 9), ('top_selfrep', 11), ('top_len', 7), ('top_copies_as', 13), ('top_core', 0)]
     print(' '.join(f"{c:>{w}}" if w else c for c, w in cols))
-    for r in sorted(rows, key=lambda r: (r['protocol'], r['host'], r['seed'])):
+    for r in sorted(rows, key=lambda r: (r['protocol'], r['host'], str(r['seed']))):
         print(' '.join(f"{fmt(c, r[c]):>{w}}" if w else fmt(c, r[c]) for c, w in cols))
 
 
