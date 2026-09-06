@@ -163,6 +163,8 @@ The Mac mini's statistics run `peters-mac-mini-m4-pro-20260906-a`, same protocol
 | 48,128 | desert: 126k distinct keys, `]`, `+`, `-` absent, entropy near zero |
 | 55,552 | crystal forming: `}` 100, `<` 77 and `{` 44 per 1,000 bytes, 130k distinct keys, entropy negative |
 
+Pair tests on the 39,936 checkpoint confirm the same mechanism. The hosts there are 18-instruction programs such as `<[[,<},,],,}<,[<[[`; the dominant variant `<[[,<},,}<,[[[[<` is the host minus the `],,` that closes its loop. Host first, variant second: both halves become the host, always. Variant first, host second: both halves become the variant in 61 percent of cases and the host is destroyed in the rest. Background first, host second: the host is destroyed every time, harsher than macbook-1's 80 percent. The variant survives background encounters in either position. A parasite again, and a more fragile host.
+
 Emergence at about 37,500, hosts extinct by 42,000, desert by 48,000, crystal by 55,000: the macbook-1 sequence compressed into a third of the time. In this run the replicators never held more than 6.5 percent of the soup, so no takeover criterion fired at all; the loopless variants took the soup directly. This is why the statistics now record the emergence, self-replicators in 1 percent of the soup, as its own event.
 
 ## Watch it happen in the stepper
