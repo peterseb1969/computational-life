@@ -391,8 +391,12 @@ def near_variants(rows, query_key, max_dist):
 
 
 def copy_loops(key):
-    """The innermost bracket loops of an instruction string, the copy engines a replicator is built on."""
-    return set(re.findall(r'\[[^\[\]]*\]', key))
+    """
+    The copy engines of an instruction string: its innermost bracket loops that contain a copy
+    instruction. Loops without one ('[]', '[<]', '[-]') are skipped: they copy nothing, and they are
+    so common in an instruction-rich soup that matching on them would sweep half of it.
+    """
+    return {l for l in re.findall(r'\[[^\[\]]*\]', key) if '.' in l or ',' in l}
 
 
 def same_lineage(a, b, max_dist=3):
