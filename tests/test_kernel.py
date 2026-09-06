@@ -104,6 +104,9 @@ def test_replay_exactness(init_dist=None):
         for e in (40, 80):
             ck, _ = core.load_checkpoint(run.rd.checkpoint_path(e))
             assert np.array_equal(run.soup_at(e), ck), f"replay to {e} differs from checkpoint"
+        log = run.log()
+        share = log['sample_selfrep_share']
+        assert share[0] >= 0 and share.max() <= 1, "sample replicator share not logged"
         os.remove(run.rd.checkpoint_path(0))            # replay must regenerate the initial soup itself
         run._soup_cache.clear(); run._cursor = None
         assert np.array_equal(run.soup_at(40), core.load_checkpoint(run.rd.checkpoint_path(40))[0]), \

@@ -130,7 +130,10 @@ async function loadOverview() {
     const traces = [{ x, y: clean(d.selfrep_slots), type: 'scatter', mode: 'lines', name: 'score ≥ 20', line: { color: cssVar('--h1'), width: 1.5 }, hovertemplate: '%{y}<extra>≥ 20</extra>' }];
     if (d.selfrep_strict_slots && d.selfrep_strict_slots.some((v) => v >= 0))
       traces.push({ x, y: clean(d.selfrep_strict_slots), type: 'scatter', mode: 'lines', name: 'score ≥ 48', line: { color: cssVar('--h0'), width: 1.5, dash: 'dot' }, hovertemplate: '%{y}<extra>≥ 48</extra>' });
-    Plotly.react('ov-selfrep', traces, plotLayout('Slots holding a self-replicator (score ≥ 20 solid, ≥ 48 dotted)', { shapes, showlegend: false }), plotConfig);
+    const n = (state.info && state.info.meta && state.info.meta.num_programs) || 0;
+    if (n && d.sample_selfrep_share && d.sample_selfrep_share.some((v) => v >= 0))
+      traces.push({ x, y: clean(d.sample_selfrep_share).map((v) => (v == null ? null : Math.round(v * n))), type: 'scatter', mode: 'lines', name: 'sample estimate', line: { color: cssVar('--accent'), width: 2 }, hovertemplate: '%{y}<extra>sample estimate</extra>' });
+    Plotly.react('ov-selfrep', traces, plotLayout('Slots holding a self-replicator (top-512 species: score ≥ 20 red, ≥ 48 dotted; random-sample estimate blue)', { shapes, showlegend: false }), plotConfig);
   }
   $('#run-status').innerHTML = statusText(info);
 }

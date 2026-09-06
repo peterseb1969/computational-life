@@ -47,7 +47,7 @@ from bff_archive import build_and_save, print_summary  # noqa: E402
 LOG_COLUMNS = ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb',
                'ops_per_pair', 'unique_species', 'top_share', 'top_key_len',
                'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'parasite_slots',
-               'selfrep_strict_slots', 'elapsed_s']
+               'selfrep_strict_slots', 'sample_selfrep_share', 'sample_strict_share', 'elapsed_s']
 
 
 def _now():
@@ -153,7 +153,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
              checkpoint_interval=256, resume_path=None,
              mutation_prob=None, max_steps=DEFAULT_MAX_STEPS,
              metric_interval=1, metric_sample=0,
-             species_interval=32, selfrep_interval=256, selfrep_top=512,
+             species_interval=32, selfrep_interval=256, selfrep_top=512, selfrep_sample=2048,
              lineage_min_len=DEFAULT_MIN_LEN, lineage_budget_mb=DEFAULT_BUDGET_MB,
              lineage_window=None, promote_count=None, cascade_depth=None, cascade_max=None,
              stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0, stop_outcome=False,
@@ -201,6 +201,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         species_interval = meta.get('species_interval', species_interval)
         selfrep_interval = meta.get('selfrep_interval', selfrep_interval)
         selfrep_top = meta.get('selfrep_top', selfrep_top)
+        selfrep_sample = meta.get('selfrep_sample', selfrep_sample)
         metric_interval = meta.get('metric_interval', metric_interval)
         metric_sample = meta.get('metric_sample', metric_sample)
         lineage_min_len = meta.get('lineage_min_len', lineage_min_len)
@@ -264,7 +265,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         'num_programs': num_programs, 'tape_size': TAPE_SIZE, 'seed': seed, 'seed_label': seed_label,
         'mutation_prob': mutation_prob, 'max_steps': max_steps, 'heads': heads,
         'checkpoint_interval': checkpoint_interval, 'species_interval': species_interval,
-        'selfrep_interval': selfrep_interval, 'selfrep_top': selfrep_top,
+        'selfrep_interval': selfrep_interval, 'selfrep_top': selfrep_top, 'selfrep_sample': selfrep_sample,
         'metric_interval': metric_interval, 'metric_sample': metric_sample,
         'lineage_min_len': lineage_min_len, 'lineage_budget_mb': lineage_budget_mb,
         'lineage_window': lineage_window, 'promote_count': promote_count, 'cascade_depth': cascade_depth,
@@ -305,8 +306,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     print(f"BFF Primordial Soup: {num_programs} programs, seed {seed_label}{'' if seed_label == str(seed) else f' ({seed})'}, "
           f"mutation {mutation_prob:g}, max_steps {max_steps}{', heads from tape' if heads else ''}, run dir {rd.path}")
     print(f"{'Epoch':>8} {'Entropy':>8} {'bpb':>6} {'Ops/Pair':>9} {'Species':>8} {'Top%':>6} "
-          f"{'SelfRep':>8} {'Parasit':>8} {'ep/s':>6}")
-    print("-" * 79)
+          f"{'SelfRep':>8} {'Parasit':>8} {'Rep%':>6} {'ep/s':>6}")
+    print("-" * 86)
 
     _warmup()
     num_pairs = num_programs // 2
@@ -319,6 +320,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     outcome = OutcomeDetector(num_programs) if stop_outcome else None
     selfrep_slots = -1
     selfrep_strict_slots = -1
+    sample_selfrep_share = -1.0     # unbiased share of the soup that replicates, from a random slot sample
+    sample_strict_share = -1.0
     tested_share = 0.0              # top share at the last self-replication test
     parasite_slots = -1
     if resume_path:   # carry the last known self-replicator counts across the resume
@@ -397,9 +400,20 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 selfrep_slots = int(counts[order][scores >= SELFREP_THRESHOLD].sum())
                 selfrep_strict_slots = int(counts[order][scores >= SELFREP_STRICT].sum())
                 parasite_slots, _ = core.parasite_load([core.program_key(p) for p in reps], counts[order], scores)
-                outcome_reason = outcome.update(epoch, selfrep_slots, parasite_slots) if outcome is not None else None
+                # the top-K species undercount a replicating population spread over many keys (mutation,
+                # instruction-rich soups); a random slot sample gives an unbiased share of the soup
+                replicating_slots = selfrep_slots
+                if selfrep_sample:
+                    sample_idx = np.random.default_rng([int(seed), 2, int(epoch)]).choice(
+                        num_programs, min(selfrep_sample, num_programs), replace=False)
+                    sample_scores = core.selfrep_test(soup[sample_idx], seed=epoch, max_steps=max_steps, heads_init=heads)
+                    sample_selfrep_share = float((sample_scores >= SELFREP_THRESHOLD).mean())
+                    sample_strict_share = float((sample_scores >= SELFREP_STRICT).mean())
+                    replicating_slots = max(selfrep_slots, int(round(sample_selfrep_share * num_programs)))
+                outcome_reason = outcome.update(epoch, replicating_slots, parasite_slots) if outcome is not None else None
                 if outcome is not None and outcome.emerged == epoch:
-                    print(f"*** Self-replicators emerged at epoch {epoch} ({selfrep_slots} slots) ***", flush=True)
+                    print(f"*** Self-replicators emerged at epoch {epoch} ({selfrep_slots} slots in the top {selfrep_top} "
+                          f"species, {100 * sample_selfrep_share:.1f}% of a {selfrep_sample}-slot sample) ***", flush=True)
                     meta['emergence_epoch'] = epoch
                     rd.write_meta(meta)
 
@@ -412,7 +426,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             elapsed = time.time() - t0
             queue.append((f"{epoch},{{compressed}},{{nbytes}},{{higher_entropy:.6f}},{{h0:.6f}},{{bpb:.6f}},"
                           f"{ops.mean():.2f},{uniq.size},{top_share:.6f},{top_len},"
-                          f"{changed.size},{n_new},{n_prom},{selfrep_slots},{parasite_slots},{selfrep_strict_slots},{elapsed:.1f}\n", metrics_future))
+                          f"{changed.size},{n_new},{n_prom},{selfrep_slots},{parasite_slots},{selfrep_strict_slots},"
+                          f"{sample_selfrep_share:.5f},{sample_strict_share:.5f},{elapsed:.1f}\n", metrics_future))
             finish_rows()
 
             # -- progress ----------------------------------------------------
@@ -423,7 +438,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 t_last, epoch_last = now, epoch
                 print(f"{epoch:8d} {metrics['higher_entropy']:8.3f} {metrics['bpb']:6.2f} "
                       f"{ops.mean():9.1f} {uniq.size:8d} {100 * top_share:6.2f} "
-                      f"{selfrep_slots:8d} {parasite_slots:8d} {rate:6.1f}", flush=True)
+                      f"{selfrep_slots:8d} {parasite_slots:8d} "
+                      f"{('%5.1f' % (100 * sample_selfrep_share)) if sample_selfrep_share >= 0 else '-':>6} {rate:6.1f}", flush=True)
 
             # -- stop conditions ---------------------------------------------
             if stop_at is None and (stop_entropy is not None or stop_share is not None or stop_selfreps is not None
@@ -519,6 +535,9 @@ def main(argv=None):
                    help="epochs between self-replication tests (0=off)")
     g.add_argument("--selfrep-top", type=int, default=512,
                    help="number of most common species to test for self-replication")
+    g.add_argument("--selfrep-sample", type=int, default=2048,
+                   help="random slots tested at every self-replication test for an unbiased replicator share "
+                        "of the soup (logged as sample_selfrep_share; 0 disables)")
     g.add_argument("--lineage-min-len", type=int, default=DEFAULT_MIN_LEN,
                    help="track births/changes only for keys with at least this many instructions")
     g.add_argument("--lineage-budget-mb", type=float, default=None,
@@ -576,7 +595,7 @@ def main(argv=None):
         resume_path=args.resume, mutation_prob=args.mutation_prob, max_steps=args.max_steps,
         metric_interval=args.metric_interval, metric_sample=args.metric_sample,
         species_interval=args.species_interval, selfrep_interval=args.selfrep_interval,
-        selfrep_top=args.selfrep_top, lineage_min_len=args.lineage_min_len,
+        selfrep_top=args.selfrep_top, selfrep_sample=args.selfrep_sample, lineage_min_len=args.lineage_min_len,
         lineage_budget_mb=args.lineage_budget_mb, lineage_window=args.lineage_window,
         promote_count=args.promote_count, cascade_depth=args.cascade_depth, cascade_max=args.cascade_max,
         stop_entropy=args.stop_entropy, stop_share=args.stop_share,

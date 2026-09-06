@@ -97,7 +97,7 @@ Every run writes to `runs/<seed>` (or `--run-dir`):
 | Path | Content |
 |------|---------|
 | `meta.json` | All parameters, resume history, stop-condition events, recording statistics |
-| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots (score ≥ 20 of 64 stable bytes), parasite load (slots held by non-replicating near-variants of a replicator, whether they hijack, kill or are inert; `bff_query.py variants` separates them), self-replicating slots under the 2026 BFF paper's stricter score ≥ 48, elapsed time |
+| `log.csv` | Per-epoch metrics: compressed size, higher-order entropy, H0, bits/byte, instructions per tape, unique species, top species share and key length, key changes, candidate and recorded births, self-replicating slots (score ≥ 20 of 64 stable bytes), parasite load (slots held by non-replicating near-variants of a replicator, whether they hijack, kill or are inert; `bff_query.py variants` separates them), self-replicating slots under the 2026 BFF paper's stricter score ≥ 48, the replicating share of a random slot sample at both thresholds (unbiased where the top-512 species miss a population spread over many keys, as under mutation), elapsed time |
 | `checkpoints/*.dat` | The soup every `--checkpoint-interval` epochs (JSON header + raw bytes). File `0` is the initial soup, file `e` the soup after epoch `e`. |
 | `changes.bin` | Change records (epoch, slot, partner slot, new key hash) for slots that changed to a recorded species, plus every slot at epoch 0 |
 | `species.db` | SQLite: recorded species with their birth event, key texts of snapshot species, species counts every `--species-interval` epochs, self-replication scores |
@@ -148,6 +148,7 @@ output:
   --species-interval N  Epochs between species-count snapshots (default: 32)
   --selfrep-interval N  Epochs between self-replication tests (default: 256)
   --selfrep-top K       Most common species to test (default: 512)
+  --selfrep-sample N    Random slots tested alongside, for an unbiased replicator share (default: 2048; 0 off)
   --lineage-min-len L   Track births only for keys with >= L instructions (default: 8)
   --lineage-window N    Epochs a birth is remembered while waiting to be promoted (default: 128)
   --promote-count K     Record a species once it occupies K slots at once (default: 6)

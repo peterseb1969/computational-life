@@ -472,6 +472,9 @@ LOG_LAYOUTS = [
     ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb', 'ops_per_pair', 'unique_species',
      'top_share', 'top_key_len', 'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'parasite_slots',
      'selfrep_strict_slots', 'elapsed_s'],
+    ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb', 'ops_per_pair', 'unique_species',
+     'top_share', 'top_key_len', 'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'parasite_slots',
+     'selfrep_strict_slots', 'sample_selfrep_share', 'sample_strict_share', 'elapsed_s'],
 ]
 LOG_MISSING = -1.0        # value of a column a row does not have (e.g. parasite_slots before it existed)
 
