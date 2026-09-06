@@ -122,7 +122,7 @@ def functional_profile(program, max_steps, trials=8, generations=8, seed=0):
         'ops_per_execution': float(np.mean(ops_list)),
         'faithful_generations_mean': float(np.mean(faithful)),
         'faithful_generations_min': int(min(faithful)),
-        'copies_as': 'mirror' if mirror > sum(faithful) / 2 else 'direct',
+        'copies_as': 'mirror' if mirror > 0 else 'direct',   # alternate generations return to the original
     }
 
 
