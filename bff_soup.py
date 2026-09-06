@@ -2,294 +2,375 @@
 """
 Numba-accelerated BFF Primordial Soup Simulation
 
-Evaluates multiple tape pairs in parallel using Numba's prange for multi-core execution.
+Runs the "computational life" experiment: a soup of random 64-byte programs
+is repeatedly paired up, each pair executed as one 128-byte BFF tape, and
+split again. Self-replicators emerge from self-modification alone (no
+mutation unless --mutation-prob is given).
 
-Requires: pip install numba numpy
+Every run writes to a run directory (default runs/<seed>) containing the
+metrics log, checkpoints, and the lineage records used by the analysis tools.
+The pairing of each epoch is derived from (seed, epoch), so a run can be
+resumed from any checkpoint and reproduces the original trajectory exactly.
+
+Requires: pip install numba numpy brotli
 
 Usage:
-    python bff_soup.py [--num 1024] [--epochs 10000] [--seed 42]
+    python bff_soup.py --num 131072 --epochs 40000
+    python bff_soup.py --resume runs/42            # continue latest checkpoint
+    python bff_soup.py --resume runs/42/checkpoints/0000010240.dat --epochs 60000
 """
 
-import numpy as np
-from numba import jit, prange
-import time
 import argparse
+import json
 import os
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
-from bff_analysis import save_checkpoint
+import numpy as np
 
+import bff_core as core
+from bff_core import TAPE_SIZE, DEFAULT_MAX_STEPS, SELFREP_THRESHOLD
+from bff_lineage import (RunDir, LineageWriter, truncate_log, DEFAULT_MIN_LEN, DEFAULT_BUDGET_MB,
+                         DEFAULT_WINDOW, DEFAULT_PROMOTE_COUNT, DEFAULT_CASCADE_DEPTH, DEFAULT_CASCADE_MAX)
 
-def shannon_entropy(data):
-    """Compute Shannon entropy (H0) in bits per byte."""
-    counts = np.bincount(np.frombuffer(data, dtype=np.uint8), minlength=256)
-    probs = counts[counts > 0] / len(data)
-    return -np.sum(probs * np.log2(probs))
-
-
-# ============================================================================
-# BFF Interpreter (Numba-compatible)
-# ============================================================================
-
-TAPE_SIZE = 64
-COMBINED_SIZE = 128
-
-# BFF instruction set (pre-computed as ints for Numba)
-LOOP_START = 91      # ord('[')
-LOOP_END = 93        # ord(']')
-PLUS = 43            # ord('+')
-MINUS = 45           # ord('-')
-COPY_TO_HEAD1 = 46   # ord('.')
-COPY_TO_HEAD0 = 44   # ord(',')
-DEC_HEAD0 = 60       # ord('<')
-INC_HEAD0 = 62       # ord('>')
-DEC_HEAD1 = 123      # ord('{')
-INC_HEAD1 = 125      # ord('}')
+LOG_COLUMNS = ['epoch', 'compressed_size', 'soup_bytes', 'higher_entropy', 'h0', 'bpb',
+               'ops_per_pair', 'unique_species', 'top_share', 'top_key_len',
+               'key_changes', 'new_species', 'promoted_species', 'selfrep_slots', 'elapsed_s']
 
 
-@jit(nopython=True)
-def evaluate(tape, max_steps=32768):
-    """
-    Execute a BFF program on a tape (Numba JIT compiled).
-
-    The tape is 128 bytes: two 64-byte programs concatenated together.
-    After execution, the tape may be modified (this is how replication works).
-
-    Returns the number of operations executed.
-    """
-    head0 = 0
-    head1 = 0
-    pc = 0
-    ops = 0
-
-    for _ in range(max_steps):
-        if pc < 0 or pc >= COMBINED_SIZE:
-            break
-
-        # Wrap head positions (0-127)
-        head0 = head0 & (COMBINED_SIZE - 1)
-        head1 = head1 & (COMBINED_SIZE - 1)
-
-        cmd = tape[pc]
-
-        if cmd == DEC_HEAD0:
-            head0 -= 1
-            ops += 1
-        elif cmd == INC_HEAD0:
-            head0 += 1
-            ops += 1
-        elif cmd == DEC_HEAD1:
-            head1 -= 1
-            ops += 1
-        elif cmd == INC_HEAD1:
-            head1 += 1
-            ops += 1
-        elif cmd == PLUS:
-            tape[head0] = (tape[head0] + 1) & 0xFF
-            ops += 1
-        elif cmd == MINUS:
-            tape[head0] = (tape[head0] - 1) & 0xFF
-            ops += 1
-        elif cmd == COPY_TO_HEAD1:
-            tape[head1] = tape[head0]
-            ops += 1
-        elif cmd == COPY_TO_HEAD0:
-            tape[head0] = tape[head1]
-            ops += 1
-        elif cmd == LOOP_START:
-            ops += 1
-            if tape[head0] == 0:
-                depth = 1
-                pc += 1
-                while pc < COMBINED_SIZE and depth > 0:
-                    if tape[pc] == LOOP_END:
-                        depth -= 1
-                    elif tape[pc] == LOOP_START:
-                        depth += 1
-                    pc += 1
-                pc -= 1
-                if depth != 0:
-                    break
-        elif cmd == LOOP_END:
-            ops += 1
-            if tape[head0] != 0:
-                depth = 1
-                pc -= 1
-                while pc >= 0 and depth > 0:
-                    if tape[pc] == LOOP_START:
-                        depth -= 1
-                    elif tape[pc] == LOOP_END:
-                        depth += 1
-                    pc -= 1
-                pc += 1
-                if depth != 0:
-                    break
-
-        pc += 1
-
-    return ops
+def _now():
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
-@jit(nopython=True, parallel=True)
-def run_epoch_parallel(soup, num_pairs):
-    """
-    Process all tape pairs in parallel using Numba prange.
-
-    Args:
-        soup: 2D array of shape (num_programs, 64)
-        num_pairs: number of pairs to process
-
-    Returns:
-        total_ops: sum of operations across all pairs
-    """
-    total_ops = 0
-
-    for i in prange(num_pairs):
-        # Create combined tape for this pair
-        tape = np.empty(COMBINED_SIZE, dtype=np.uint8)
-        idx0 = i * 2
-        idx1 = i * 2 + 1
-
-        # Copy both programs into tape
-        for j in range(TAPE_SIZE):
-            tape[j] = soup[idx0, j]
-            tape[j + TAPE_SIZE] = soup[idx1, j]
-
-        # Execute BFF
-        ops = evaluate(tape)
-        total_ops += ops
-
-        # Write back modified tape
-        for j in range(TAPE_SIZE):
-            soup[idx0, j] = tape[j]
-            soup[idx1, j] = tape[j + TAPE_SIZE]
-
-    return total_ops
-
-
-# ============================================================================
-# Primordial Soup
-# ============================================================================
-
-def run_soup(num_programs=1024, max_epochs=10000, seed=42, log_file=None,
-             checkpoint_dir="checkpoints", checkpoint_interval=256, resume_path=None):
-    """
-    Run the primordial soup simulation with parallel Numba acceleration.
-    """
-    np.random.seed(seed)
-
-    # Initialize soup as 2D array (from checkpoint or random)
-    if resume_path:
-        from bff_analysis import load_checkpoint
-        soup_bytes, meta = load_checkpoint(resume_path)
-        # Convert bytearrays to 2D numpy array
-        soup = np.array([list(prog) for prog in soup_bytes], dtype=np.uint8)
-        start_epoch = meta['epoch'] + 1
-        num_programs = meta['num_programs']
-        print(f"Resuming from {resume_path} at epoch {start_epoch}")
-    else:
-        soup = np.random.randint(0, 256, (num_programs, TAPE_SIZE), dtype=np.uint8)
-        start_epoch = 0
-
-    num_pairs = num_programs // 2
-
-    # Setup logging
-    if log_file:
-        if resume_path:
-            log = open(log_file, 'a')
-        else:
-            log = open(log_file, 'w')
-            log.write("epoch,brotli_size,num_programs,higher_entropy\n")
-    else:
-        log = None
-
-    if checkpoint_dir:
-        os.makedirs(checkpoint_dir, exist_ok=True)
-
-    print(f"BFF Primordial Soup (Numba): {num_programs} programs, seed {seed}")
-    print(f"{'Epoch':>8} {'Entropy':>10} {'Ops/Pair':>10}")
-    print("-" * 32)
-
-    # Warm up Numba JIT (both sequential and parallel paths)
+def _warmup():
+    """Trigger Numba compilation on tiny inputs so timings exclude JIT."""
     dummy = np.zeros((4, TAPE_SIZE), dtype=np.uint8)
-    run_epoch_parallel(dummy, 2)
+    core.run_epoch(dummy, np.arange(4), 16, 0, 0, np.empty(2, dtype=np.int64))
+    core.compute_keys(dummy)
+    core.selfrep_test(dummy[:1], 0, 16)
 
-    start = time.time()
 
-    # Pre-allocate shuffle indices
-    indices = np.arange(num_programs)
+def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
+             checkpoint_interval=256, resume_path=None,
+             mutation_prob=0.0, max_steps=DEFAULT_MAX_STEPS,
+             metric_interval=1, metric_sample=0,
+             species_interval=32, selfrep_interval=256, selfrep_top=512,
+             lineage_min_len=DEFAULT_MIN_LEN, lineage_budget_mb=DEFAULT_BUDGET_MB,
+             lineage_window=None, promote_count=None, cascade_depth=None, cascade_max=None,
+             stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0,
+             print_interval=100, seed_programs=None):
+    """Run (or resume) the simulation. Returns the final soup."""
 
-    for epoch in range(start_epoch, max_epochs):
-        # Shuffle by permuting indices and reordering soup
-        np.random.shuffle(indices)
-        soup = soup[indices]
+    # ---- resolve run directory and starting state --------------------------
+    if resume_path:
+        if os.path.isdir(resume_path):
+            rd = RunDir(resume_path)
+            cps = rd.checkpoints()
+            if not cps:
+                sys.exit(f"No checkpoints in {resume_path}")
+            ckpt = cps[-1][1]
+        else:
+            ckpt = resume_path
+            rd = RunDir(run_dir_path or os.path.dirname(os.path.dirname(os.path.abspath(ckpt))))
+        soup, ck = core.load_checkpoint(ckpt)
+        if ck.get('format', 1) == 1:
+            sys.exit("Cannot resume from a v1 checkpoint: it has no seed/pairing information.")
+        if ck['epoch'] == 0:
+            sys.exit("Checkpoint 0 is the initial soup; delete the run directory and start a fresh run instead.")
+        num_programs = ck['num_programs']
+        seed = ck['seed']
+        mutation_prob = ck.get('mutation_prob', 0.0)
+        max_steps = ck.get('max_steps', DEFAULT_MAX_STEPS)
+        start_epoch = ck['epoch'] + 1
+        meta = rd.read_meta() if rd.exists() else {}
+        # recording settings must stay what they were for the run to remain consistent
+        checkpoint_interval = meta.get('checkpoint_interval', checkpoint_interval)
+        species_interval = meta.get('species_interval', species_interval)
+        selfrep_interval = meta.get('selfrep_interval', selfrep_interval)
+        selfrep_top = meta.get('selfrep_top', selfrep_top)
+        metric_interval = meta.get('metric_interval', metric_interval)
+        metric_sample = meta.get('metric_sample', metric_sample)
+        lineage_min_len = meta.get('lineage_min_len', lineage_min_len)
+        lineage_budget_mb = meta.get('lineage_budget_mb', lineage_budget_mb)
+        # the recording policy may be tightened or loosened on resume (explicit flags win)
+        lineage_window = lineage_window if lineage_window is not None else meta.get('lineage_window', DEFAULT_WINDOW)
+        promote_count = promote_count if promote_count is not None else meta.get('promote_count', DEFAULT_PROMOTE_COUNT)
+        cascade_depth = cascade_depth if cascade_depth is not None else meta.get('cascade_depth', DEFAULT_CASCADE_DEPTH)
+        cascade_max = cascade_max if cascade_max is not None else meta.get('cascade_max', DEFAULT_CASCADE_MAX)
+        meta.setdefault('resumes', []).append({'from': ckpt, 'epoch': start_epoch, 'time': _now()})
+        truncate_log(rd.log_path, ck['epoch'])
+        print(f"Resuming {rd.path} from {ckpt} at epoch {start_epoch}")
+    else:
+        rd = RunDir(run_dir_path or os.path.join('runs', str(seed)))
+        if rd.exists():
+            sys.exit(f"Run directory {rd.path} already exists. Use --resume {rd.path} or pick another --run-dir.")
+        rd.create()
+        soup = core.random_soup(num_programs, seed)
+        start_epoch = 0
+        meta = {'created': _now(), 'resumes': []}
+        if seed_programs:
+            # "<file.npy>[:count]": plant copies of given programs into random slots
+            path, _, count = seed_programs.partition(':')
+            progs = np.load(path).reshape(-1, TAPE_SIZE).astype(np.uint8)
+            count = int(count) if count else progs.shape[0]
+            slots = core.init_rng(seed + 1).choice(num_programs, size=count, replace=False)
+            for i, slot in enumerate(slots.tolist()):
+                soup[slot] = progs[i % progs.shape[0]]
+            meta['seed_programs'] = {'file': path, 'count': count, 'slots': slots.tolist()}
 
-        # === THE CORE LOOP (PARALLEL) ===
-        total_ops = run_epoch_parallel(soup, num_pairs)
-        # === END CORE LOOP ===
+    if num_programs % 2:
+        sys.exit("--num must be even")
+    lineage_window = DEFAULT_WINDOW if lineage_window is None else lineage_window
+    promote_count = DEFAULT_PROMOTE_COUNT if promote_count is None else promote_count
+    cascade_depth = DEFAULT_CASCADE_DEPTH if cascade_depth is None else cascade_depth
+    cascade_max = DEFAULT_CASCADE_MAX if cascade_max is None else cascade_max
 
-        # Measure complexity via compression (sample for speed)
-        import zlib
-        sample_size = min(4096, num_programs)
-        data = soup[:sample_size].tobytes()
-        compressed = zlib.compress(data, level=1)
-        h0 = shannon_entropy(data)
-        bpb = len(compressed) * 8 / len(data)
-        entropy = h0 - bpb
+    meta.update({
+        'num_programs': num_programs, 'tape_size': TAPE_SIZE, 'seed': seed,
+        'mutation_prob': mutation_prob, 'max_steps': max_steps,
+        'checkpoint_interval': checkpoint_interval, 'species_interval': species_interval,
+        'selfrep_interval': selfrep_interval, 'selfrep_top': selfrep_top,
+        'metric_interval': metric_interval, 'metric_sample': metric_sample,
+        'lineage_min_len': lineage_min_len, 'lineage_budget_mb': lineage_budget_mb,
+        'lineage_window': lineage_window, 'promote_count': promote_count, 'cascade_depth': cascade_depth,
+        'cascade_max': cascade_max,
+        'compressor': core.COMPRESSOR, 'max_epochs': max_epochs,
+        'stop': {'entropy': stop_entropy, 'share': stop_share, 'selfreps': stop_selfreps,
+                 'after': stop_after},
+        'log_columns': LOG_COLUMNS,
+    })
+    rd.write_meta(meta)
+    ckpt_meta = {'seed': seed, 'mutation_prob': mutation_prob, 'max_steps': max_steps}
+    mutation_int = int(round(mutation_prob * (1 << 30)))
 
-        # Log progress (use sample_size for correct bpb calculation in visualizer)
-        if log:
-            log.write(f"{epoch},{len(compressed)},{sample_size},{entropy:.6f}\n")
+    # ---- lineage + log ------------------------------------------------------
+    lineage = LineageWriter(rd, min_len=lineage_min_len, window=lineage_window, budget_mb=lineage_budget_mb,
+                            promote_count=promote_count, cascade_depth=cascade_depth, cascade_max=cascade_max,
+                            resume_epoch=(start_epoch - 1) if resume_path else None)
+    if lineage.window_reset:
+        meta.setdefault('window_resets', []).append(start_epoch)
+        rd.write_meta(meta)
+    prev_hash, prev_len = core.compute_keys(soup)
+    if not resume_path:
+        lineage.record_initial(soup, prev_hash, prev_len)
+        u0, f0, c0 = np.unique(prev_hash, return_index=True, return_counts=True)
+        lineage.record_counts(0, u0, c0, soup, f0)
+        core.save_checkpoint(soup, 0, rd.checkpoint_path(0), ckpt_meta)
+        lineage.commit()
+
+    new_log = not os.path.exists(rd.log_path) or os.path.getsize(rd.log_path) == 0
+    log = open(rd.log_path, 'a')
+    if new_log:
+        log.write(','.join(LOG_COLUMNS) + '\n')
+
+    # ---- main loop ----------------------------------------------------------
+    print(f"BFF Primordial Soup: {num_programs} programs, seed {seed}, "
+          f"mutation {mutation_prob:g}, max_steps {max_steps}, run dir {rd.path}")
+    print(f"{'Epoch':>8} {'Entropy':>8} {'bpb':>6} {'Ops/Pair':>9} {'Species':>8} {'Top%':>6} "
+          f"{'SelfRep':>8} {'ep/s':>6}")
+    print("-" * 70)
+
+    _warmup()
+    num_pairs = num_programs // 2
+    ops = np.empty(num_pairs, dtype=np.int64)
+    prev_soup = np.empty_like(soup)
+    t0 = time.time()
+    t_last = t0
+    epoch_last = start_epoch
+    stop_at = None
+    selfrep_slots = -1
+    if resume_path:   # carry the last known self-replicator count across the resume
+        last = lineage.db.execute("SELECT MAX(epoch) FROM selfrep").fetchone()[0]
+        if last is not None:
+            row = lineage.db.execute("SELECT COALESCE(SUM(count), 0) FROM selfrep WHERE score >= ? AND epoch = ?",
+                                     (SELFREP_THRESHOLD, last)).fetchone()
+            selfrep_slots = int(row[0])
+    epoch = start_epoch - 1
+    metrics = {'higher_entropy': float('nan'), 'bpb': float('nan'), 'h0': float('nan'),
+               'compressed': -1, 'nbytes': 0}
+    pool = ThreadPoolExecutor(max_workers=1)   # compression overlaps the next epoch (brotli releases the GIL)
+    pending_metrics = None                       # (epoch, future)
+    pending_row = None                           # log row of the previous epoch waiting for its metrics
+
+    def finish_row():
+        nonlocal pending_metrics, pending_row, metrics
+        if pending_metrics is not None:
+            metrics = pending_metrics[1].result()
+            pending_metrics = None
+        if pending_row is not None:
+            log.write(pending_row.format(**metrics))
             log.flush()
+            pending_row = None
 
-        # Save checkpoint (convert to bytearrays for compatibility)
-        if checkpoint_dir and epoch % checkpoint_interval == 0:
-            path = os.path.join(checkpoint_dir, f"{epoch:010d}.dat")
-            soup_bytes = [bytearray(row) for row in soup]
-            save_checkpoint(soup_bytes, epoch, path)
+    try:
+        for epoch in range(start_epoch, max_epochs):
+            # -- execute one epoch -------------------------------------------
+            perm = core.epoch_permutation(seed, epoch, num_programs)
+            np.copyto(prev_soup, soup)
+            core.run_epoch(soup, perm, max_steps, mutation_int, epoch, ops)
 
-        # Print progress
-        if epoch % 100 == 0:
-            avg_ops = total_ops / num_pairs
-            print(f"{epoch:8d} {entropy:10.4f} {avg_ops:10.1f}")
+            # -- keys, changes, births ---------------------------------------
+            if metric_interval and epoch % metric_interval == 0:
+                data = (soup if metric_sample <= 0 else soup[:metric_sample]).tobytes()
+                finish_row()
+                pending_metrics = (epoch, pool.submit(core.complexity_metrics, np.frombuffer(data, dtype=np.uint8)))
 
-        # Detect transition (log but don't stop)
-        if entropy > 3.0 and epoch % 100 == 0:
-            print(f"*** TRANSITION at epoch {epoch}! Entropy: {entropy:.2f} ***")
+            cur_hash, cur_len = core.compute_keys(soup)
+            changed = np.flatnonzero(cur_hash != prev_hash)
+            partner = core.partners_from_perm(perm)
+            uniq, first_idx, counts = np.unique(cur_hash, return_index=True, return_counts=True)
+            n_new, n_prom = lineage.record_epoch(epoch, soup, prev_soup, prev_hash, prev_len, cur_hash, cur_len,
+                                                 changed, partner, uniq, first_idx, counts)
+            prev_hash, prev_len = cur_hash, cur_len
 
-    elapsed = time.time() - start
-    print(f"\nDone in {elapsed:.1f}s ({epoch/elapsed:.0f} epochs/sec)")
+            # -- population statistics ---------------------------------------
+            top_i = int(np.argmax(counts))
+            top_share = counts[top_i] / num_programs
+            top_len = int(cur_len[first_idx[top_i]])
+            if species_interval and epoch % species_interval == 0:
+                lineage.record_counts(epoch, uniq, counts, soup, first_idx)
 
-    if log:
-        log.close()
+            # -- self-replication test on the most common species ------------
+            if selfrep_interval and epoch % selfrep_interval == 0:
+                order = np.argsort(-counts, kind='stable')[:selfrep_top]
+                reps = soup[first_idx[order]]
+                scores = core.selfrep_test(reps, seed=epoch, max_steps=max_steps)
+                lineage.record_selfrep(epoch, uniq[order], scores, counts[order])
+                selfrep_slots = int(counts[order][scores >= SELFREP_THRESHOLD].sum())
+
+            # -- checkpoint --------------------------------------------------
+            if checkpoint_interval and epoch % checkpoint_interval == 0 and epoch != 0:
+                core.save_checkpoint(soup, epoch, rd.checkpoint_path(epoch), ckpt_meta)
+                lineage.commit()
+
+            # -- log ---------------------------------------------------------
+            elapsed = time.time() - t0
+            pending_row = (f"{epoch},{{compressed}},{{nbytes}},{{higher_entropy:.6f}},{{h0:.6f}},{{bpb:.6f}},"
+                           f"{ops.mean():.2f},{uniq.size},{top_share:.6f},{top_len},"
+                           f"{changed.size},{n_new},{n_prom},{selfrep_slots},{elapsed:.1f}\n")
+            if pending_metrics is None:
+                finish_row()
+
+            # -- progress ----------------------------------------------------
+            if epoch % print_interval == 0:
+                now = time.time()
+                rate = (epoch - epoch_last) / (now - t_last) if now > t_last and epoch > epoch_last else 0.0
+                t_last, epoch_last = now, epoch
+                print(f"{epoch:8d} {metrics['higher_entropy']:8.3f} {metrics['bpb']:6.2f} "
+                      f"{ops.mean():9.1f} {uniq.size:8d} {100 * top_share:6.2f} "
+                      f"{selfrep_slots:8d} {rate:6.1f}", flush=True)
+
+            # -- stop conditions ---------------------------------------------
+            if stop_at is None:
+                reason = None
+                if stop_entropy is not None and metrics['higher_entropy'] > stop_entropy:
+                    reason = f"higher-order entropy {metrics['higher_entropy']:.2f} > {stop_entropy}"
+                elif stop_share is not None and 100 * top_share > stop_share:
+                    reason = f"top species share {100 * top_share:.1f}% > {stop_share}%"
+                elif stop_selfreps is not None and selfrep_slots >= stop_selfreps:
+                    reason = f"{selfrep_slots} self-replicating slots >= {stop_selfreps}"
+                if reason:
+                    stop_at = epoch + stop_after
+                    print(f"*** Stop condition met at epoch {epoch}: {reason}; "
+                          f"stopping at epoch {stop_at} ***", flush=True)
+                    meta['stop_triggered'] = {'epoch': epoch, 'reason': reason, 'stop_at': stop_at}
+                    rd.write_meta(meta)
+            if stop_at is not None and epoch >= stop_at:
+                break
+    except KeyboardInterrupt:
+        print("\nInterrupted.", flush=True)
+
+    # ---- final checkpoint and cleanup -------------------------------------
+    finish_row()
+    pool.shutdown()
+    if epoch >= start_epoch:
+        core.save_checkpoint(soup, epoch, rd.checkpoint_path(epoch), ckpt_meta)
+    changes_exhausted = lineage.changes_exhausted_epoch
+    meta['lineage_stats'] = lineage.stats
+    lineage.close(epoch if epoch >= start_epoch else None)
+    log.close()
+    if changes_exhausted is not None:
+        meta['changes_budget_exhausted_epoch'] = changes_exhausted
+    meta['last_epoch'] = int(epoch)
+    meta['finished'] = _now()
+    rd.write_meta(meta)
+
+    elapsed = time.time() - t0
+    done = epoch - start_epoch + 1
+    print(f"\nDone: {done} epochs in {elapsed:.1f}s ({done / max(elapsed, 1e-9):.1f} epochs/sec). "
+          f"Run dir: {rd.path}")
 
     return soup
 
 
-# ============================================================================
-# Main
-# ============================================================================
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="BFF Primordial Soup (Numba)")
-    parser.add_argument("--num", type=int, default=1024, help="Number of programs")
-    parser.add_argument("--epochs", type=int, default=10000, help="Max epochs")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--log", type=str, default="bff_soup.log",
-                        help="Log file (default: bff_soup.log, use '' to disable)")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
-                        help="Checkpoint directory (default: checkpoints, use '' to disable)")
-    parser.add_argument("--checkpoint-interval", type=int, default=256)
-    parser.add_argument("--resume", type=str, default=None,
-                        help="Resume from checkpoint file")
-
-    args = parser.parse_args()
+def main(argv=None):
+    p = argparse.ArgumentParser(description="BFF Primordial Soup (Numba)",
+                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    g = p.add_argument_group("simulation")
+    g.add_argument("--num", type=int, default=1024, help="number of programs (even)")
+    g.add_argument("--epochs", type=int, default=10000, help="run until this epoch number")
+    g.add_argument("--seed", type=int, default=42, help="random seed")
+    g.add_argument("--mutation-prob", type=float, default=0.0,
+                   help="per-byte mutation probability per epoch (paper default 1/4096 = 0.000244)")
+    g.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS,
+                   help="step budget per tape execution (paper/cubff: 8192)")
+    g.add_argument("--seed-programs", type=str, default=None, metavar="FILE.npy[:COUNT]",
+                   help="plant COUNT copies of the programs in FILE (n x 64 uint8) into random slots")
+    g = p.add_argument_group("output")
+    g.add_argument("--run-dir", type=str, default=None, help="run directory (default runs/<seed>)")
+    g.add_argument("--resume", type=str, default=None,
+                   help="run directory (latest checkpoint) or checkpoint file to resume from; "
+                        "the run's recorded settings are kept, only --epochs, stop conditions, "
+                        "--print-interval and the recording policy flags apply")
+    g.add_argument("--checkpoint-interval", type=int, default=256, help="epochs between checkpoints (0=off)")
+    g.add_argument("--species-interval", type=int, default=32,
+                   help="epochs between species-count snapshots (0=off)")
+    g.add_argument("--selfrep-interval", type=int, default=256,
+                   help="epochs between self-replication tests (0=off)")
+    g.add_argument("--selfrep-top", type=int, default=512,
+                   help="number of most common species to test for self-replication")
+    g.add_argument("--lineage-min-len", type=int, default=DEFAULT_MIN_LEN,
+                   help="track births/changes only for keys with at least this many instructions")
+    g.add_argument("--lineage-budget-mb", type=float, default=DEFAULT_BUDGET_MB,
+                   help="stop appending change records once changes.bin reaches this size")
+    g.add_argument("--lineage-window", type=int, default=None,
+                   help=f"epochs a birth is remembered while waiting to be promoted (default {DEFAULT_WINDOW})")
+    g.add_argument("--promote-count", type=int, default=None,
+                   help=f"a species is recorded once it occupies this many slots at once (default {DEFAULT_PROMOTE_COUNT}; may be changed on resume)")
+    g.add_argument("--cascade-max", type=int, default=None,
+                   help=f"ancestors recorded per promotion, nearest first (default {DEFAULT_CASCADE_MAX}; may be changed on resume)")
+    g.add_argument("--cascade-depth", type=int, default=None,
+                   help=f"generations of pending ancestors recorded along with a promoted species (default {DEFAULT_CASCADE_DEPTH}; may be changed on resume)")
+    g.add_argument("--metric-interval", type=int, default=1, help="epochs between compression metrics")
+    g.add_argument("--metric-sample", type=int, default=0,
+                   help="programs to compress for the metrics (0 = whole soup)")
+    g.add_argument("--print-interval", type=int, default=100)
+    g = p.add_argument_group("stop conditions (optional, first one met wins)")
+    g.add_argument("--stop-entropy", type=float, default=None, help="stop when higher-order entropy exceeds this")
+    g.add_argument("--stop-share", type=float, default=None,
+                   help="stop when one species exceeds this percentage of the soup")
+    g.add_argument("--stop-selfreps", type=int, default=None,
+                   help="stop when at least this many slots hold a self-replicator")
+    g.add_argument("--stop-after", type=int, default=0,
+                   help="keep running this many epochs after a stop condition fires")
+    args = p.parse_args(argv)
 
     run_soup(
-        num_programs=args.num,
-        max_epochs=args.epochs,
-        seed=args.seed,
-        log_file=args.log if args.log else None,
-        checkpoint_dir=args.checkpoint_dir if args.checkpoint_dir else None,
-        checkpoint_interval=args.checkpoint_interval,
-        resume_path=args.resume,
+        num_programs=args.num, max_epochs=args.epochs, seed=args.seed,
+        run_dir_path=args.run_dir, checkpoint_interval=args.checkpoint_interval,
+        resume_path=args.resume, mutation_prob=args.mutation_prob, max_steps=args.max_steps,
+        metric_interval=args.metric_interval, metric_sample=args.metric_sample,
+        species_interval=args.species_interval, selfrep_interval=args.selfrep_interval,
+        selfrep_top=args.selfrep_top, lineage_min_len=args.lineage_min_len,
+        lineage_budget_mb=args.lineage_budget_mb, lineage_window=args.lineage_window,
+        promote_count=args.promote_count, cascade_depth=args.cascade_depth, cascade_max=args.cascade_max,
+        stop_entropy=args.stop_entropy, stop_share=args.stop_share,
+        stop_selfreps=args.stop_selfreps, stop_after=args.stop_after,
+        print_interval=args.print_interval, seed_programs=args.seed_programs,
     )
+
+
+if __name__ == "__main__":
+    main()
