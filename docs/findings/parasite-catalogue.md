@@ -157,11 +157,24 @@ Host bytes, for comparison:
 
 ---
 
+## The control that changes the picture
+
+Crossing every parasite and killer above with every host, across families, converts the host into a loopless variant in 100 percent of pairings. That universality is not a skill of the variants but a fragility of the hosts. Random programs placed before a host, 100 pairings each:
+
+| Partner before the host | Host turned loopless | Host intact |
+|---|---|---|
+| all zeros | 0% | 100% |
+| random bytes | 72 to 74% | 16 to 19% |
+| random bytes with an unmatched `[` | 83% | 1 to 2% |
+| random bytes containing no bracket at all | 90 to 91% | 1 to 3% |
+
+The same four hosts, the same numbers within a few percent. A host that lands in the second half behind almost any program that moves a head is entered by fall-through with displaced heads, and its own loop then copies the partner's bytes over its own tail, where its closing brackets sit. Zeros do nothing because no instruction runs before the fall-through. So the parasites and killers do not carry a trick that spreads through the population; they are the products of the host's self-mutilation and mutilate hosts exactly as the random background does. What distinguishes a full parasite from the background is only that the host copies it *exactly*, because its instruction bytes lie inside the region the host's loop overwrites, so its count grows with every encounter; a killer's product is a different sequence each time. No information spreads from variant to host. The information that matters, the deletion of the loop closer, is produced afresh by every host that runs second.
+
 ## What the cases have in common
 
 - Every parasite is the host minus its loop-closing bracket, made continuously by hosts that end up in the second half of a tape behind a background program: the fall-through of the program counter runs the host's loop with foreign head positions and the host copies its partner over its own tail.
 - The parasite's straight-line prefix reproduces the host's head configuration and its open `[` hands execution to the partner, so a following host copies the parasite over itself.
-- Hijackers and killers are one mechanism with two extents. When the overwritten region covers all of the host's instruction bytes, the product is the variant's exact key: a hijacker. When it covers the host's loop-closing brackets but not its head, the product is a loopless hybrid, a new killer of a slightly different sequence. Neither can reproduce without a host.
+- The mechanism is the host's, not the variant's: a random bracket-free program mutilates a host it precedes in 91 percent of cases. Hijackers and killers are one mechanism with two extents. When the overwritten region covers all of the host's instruction bytes, the product is the variant's exact key: a hijacker. When it covers the host's loop-closing brackets but not its head, the product is a loopless hybrid, a new killer of a slightly different sequence. Neither can reproduce without a host.
 - Whoever runs first wins the host-parasite encounter; the difference is made by the background, which destroys hosts and spares parasites.
 - The outcome depends on how far the host got before the parasite rose. A host that swept the background first (cases 1 and 2) was then eaten by its parasite, which starved in turn and left a desert. A host capped early by its parasite while the background was still the majority (case 4, and the unresolved coexistences in runs 46, mini `-d` and pi-1) settled into a standoff that 60,000 further epochs did not resolve.
 - Across the thirteen emergences seen so far, clean takeovers are the minority: five takeovers, two parasite-driven extinctions, five coexistences, one fade.
