@@ -4,6 +4,8 @@
 
 A soup of random 64-byte programs is repeatedly paired up. Each pair is executed as one 128-byte tape in a Brainfuck dialect (BFF) whose instructions read and write the tape itself, then split again. There is no fitness function and, by default, no mutation. Sooner or later a program appears that copies itself into its partner, and the soup changes character: entropy, bits per byte and species counts all jump. This repository lets you run that experiment at the paper's scale, watch it live, search the soup for a program, trace a replicator's ancestry back to the epoch it first appeared, replay any birth event step by step in the browser, and compare what emerged across runs.
 
+![Species dynamics of run 44: the random background is replaced by a replicator and its mirror image](screenshots/species.png)
+
 **What the fork adds**
 
 - A replay-exact simulator: every epoch's pairing derives from the seed, slots are stable identities, and a resumed run reproduces the uninterrupted one byte for byte.
@@ -166,6 +168,8 @@ python3 bff_web.py --runs runs --port 8765 --no-browser
 ```
 
 Works while a simulation is running; the overview auto-refreshes.
+
+![Lineage of run 44's replicator: born at epoch 1084 as a mirror copy of its partner](screenshots/lineage.png)
 
 | Tab | What it shows |
 |-----|---------------|
