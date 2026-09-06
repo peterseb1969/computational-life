@@ -4,7 +4,7 @@
 
 ## Summary
 
-After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and took over the soup within a thousand epochs. Thirty-five epochs after its birth, a copy error produced a variant that had lost the two closing brackets of its copy loop. That variant cannot copy anything, yet it reproduces: its first instructions leave the heads in the positions the replicator's loop expects, and its unmatched opening bracket lets execution run on into the partner's code. When the partner is the replicator, the replicator's own loop copies the parasite over the replicator. The parasite also survives encounters that destroy the replicator. Over 17,000 epochs it drove the replicator to extinction, held 99 percent of the soup for a moment, and then, with no host left to reproduce it, eroded away. At epoch 80,000 the soup was returning to noise. One seed, one complete ecological cycle: emergence, takeover, parasitism, host extinction, parasite extinction, decay.
+After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and took over the soup within a thousand epochs. Thirty-five epochs after its birth, a copy error produced a variant that had lost the two closing brackets of its copy loop. That variant cannot copy anything, yet it reproduces: its first instructions leave the heads in the positions the replicator's loop expects, and its unmatched opening bracket lets execution run on into the partner's code. When the partner is the replicator, the replicator's own loop copies the parasite over the replicator. The parasite also survives encounters that destroy the replicator. Over 17,000 epochs it drove the replicator to extinction, held 99 percent of the soup for a moment, and then, with no host left to reproduce it, eroded away. What remained was not the random soup of the beginning but a desert: debris of the parasite, converging rather than diversifying, without a single closing bracket or `+`/`-` left to build a new loop from. By epoch 130,000 no new life had appeared. One seed, one complete ecological cycle: emergence, takeover, parasitism, host extinction, parasite extinction, and a soup that can no longer evolve.
 
 ## Timeline
 
@@ -22,6 +22,7 @@ After 49,000 epochs of random soup, a 12-instruction self-replicator emerged and
 | 68,896 | 0 | 99.4% | 0.6% | 539 | 2.9 | the parasite's peak, nothing in the soup can copy |
 | 75,520 | 0 | 86% | 10% | 8.5k | 2.5 | erosion |
 | 79,936 | 0 | 1% | 78% | 22.6k | 2.2 | the parasite lineage is scattered over dozens of decaying variants |
+| 130,000 | 0 | 0 | 100% | 15.9k | 2.0 | the desert: homogeneous debris, no `]`, `+`, `-` or `,` left in the soup |
 
 Shares are the fraction of the 131,072 slots holding a key of each kind, from the species snapshots every 32 epochs. "Replicators" are keys containing the loop `>]]>`; "parasites" are keys built on `..{>>{..` or `..{>{..` without a closing bracket.
 
@@ -104,13 +105,31 @@ The fall-through of the program counter from the first half into the second is t
 
 The paper ("Computational Life", Agüera y Arcas et al., 2024) reports no parasites or hypercycles in BFF. This run was without mutation; background mutation would damage parasites as much as hosts, and might be what keeps them rare in the paper's default setup. Tierra's parasites, which reproduce by calling the host's copy routine, are the closest precedent.
 
-## Can life re-emerge from the remains?
+## Can life re-emerge from the remains? The desert
 
-Nothing in the soup at epoch 80,000 replicates, but nothing prevents a new replicator either. The soup is not the random soup of epoch 0: it is enriched in copy-loop fragments, `[..{>` and `>{..[` occur in most keys, and a single byte change that inserts a `]` at the right place would close a loop. The diversity that a new emergence needs is coming back, from a few hundred keys at 69k to 22,000 at 80k and rising, and the activity that generates variation is back to pre-transition levels, about 45,000 key changes per epoch. The first emergence took 49,000 epochs from a random start; whether a second one comes sooner from this pre-adapted debris, or whether the fragments have decayed past usefulness by the time diversity is back, is an open question. The run can be extended to find out:
+The run was extended to 130,000 epochs to find out. No self-replicator appeared, and the soup shows why: it is not returning to the random state it started from.
 
-```bash
-python3 bff_soup.py --resume runs/macbook-1 --epochs 130000
-```
+| Epoch | Distinct keys | Entropy | Bits per byte | Key changes per epoch |
+|---|---|---|---|---|
+| 0 to 49k, before life | 110k to 118k | 0.2 to 0.5 | 6.3 | 20k to 38k |
+| 80k | 25k | 2.2 | 1.50 | 44k |
+| 100k | 25k | 2.1 | 1.55 | 36k |
+| 130k | 16k | 2.0 | 1.57 | 26k |
+
+After the parasite's decay the soup is a homogeneous field of its debris: at 130k, 70 percent of keys still contain `[..{>`, the soup compresses to 1.6 bits per byte, and it is converging rather than diversifying. Distinct keys fall and activity falls, because the few programs that still write copy bytes from one piece of debris onto another.
+
+The decisive fact is the instruction repertoire. Instruction bytes per 1000 soup bytes:
+
+| Epoch | `[` | `]` | `+` | `-` | `.` | `,` | `<` | `>` | `{` | `}` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0, random | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 |
+| 48.9k, just before life | 41 | 10 | 8 | 8 | 11 | 51 | 68 | 35 | 3 | 2 |
+| 60k, replicator and parasite | 36 | 5.5 | 0 | 0 | 63 | 0 | 0 | 31 | 31 | 0 |
+| 130k, the desert | 57 | 0 | 0 | 0 | 32 | 0 | 0 | 30 | 70 | 0 |
+
+The parasite overwrote 99 percent of the soup with copies of itself, and its genome uses only `[`, `.`, `>` and `{`. The random background that carried every instruction is gone. In a sample of 8,192 programs at 130k there is not one `]`, so no loop can close, and there is no `+` or `-`, the only instructions that turn a data byte into a different byte value. The one remaining route to a new instruction byte is a `.` copying a data byte that happens to hold an instruction value, and the data bytes are being homogenised too. The soup has lost the means to evolve.
+
+So the answer is no, and not because diversity is low in itself: the parasite stripped the soup of the building blocks. A random soup at epoch 0 is more fertile than this one at 130,000. Without mutation, which is the only process that writes uniformly random bytes, there is nothing to replenish them. Whether background mutation at the paper's rate would revive the desert is the natural follow-up experiment.
 
 ## Watch it happen in the stepper
 
