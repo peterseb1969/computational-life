@@ -474,7 +474,8 @@ class Run:
             return self._soup_cache[epoch]
         if epoch < 0:
             path = self.rd.checkpoint_path(0)
-            soup = core.load_checkpoint(path)[0] if os.path.exists(path) else core.random_soup(self.num_programs, self.seed)
+            soup = (core.load_checkpoint(path)[0] if os.path.exists(path)
+                    else core.random_soup(self.num_programs, self.seed, core.parse_init_dist(self.meta.get('init_dist'))))
             return self._remember(epoch, soup)
         ck_epoch, _ = max(((e, p) for e, p in self.checkpoints() if e <= epoch), key=lambda x: x[0])
         if self._cursor is not None and ck_epoch <= self._cursor[0] <= epoch:

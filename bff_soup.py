@@ -113,11 +113,11 @@ def probability(text):
     return float(text)
 
 
-def protocol_name(num_programs, max_steps, mutation_prob, heads=False):
+def protocol_name(num_programs, max_steps, mutation_prob, heads=False, init_dist=None):
     """Canonical label of the experimental setup, so runs can be grouped for statistics."""
     size = f"{num_programs // 1024}k" if num_programs % 1024 == 0 else str(num_programs)
     mut = f"-mut{int(round(1 / mutation_prob))}" if mutation_prob > 0 else ""      # -mut4096 = one byte in 4096 per epoch
-    return f"{size}-{max_steps}{mut}" + ("-heads" if heads else "")
+    return f"{size}-{max_steps}{mut}" + ("-heads" if heads else "") + core.init_dist_label(init_dist)
 
 
 def default_seed_name(runs_root='runs'):
@@ -148,7 +148,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
              lineage_window=None, promote_count=None, cascade_depth=None, cascade_max=None,
              stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0, stop_outcome=False,
              print_interval=100, seed_programs=None, archive=True, archive_dir='archive', protocol=None,
-             heads=False):
+             heads=False, init_dist=None):
     """Run (or resume) the simulation. Returns the final soup."""
 
     # ---- resolve run directory and starting state --------------------------
@@ -182,6 +182,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         mutation_prob = mutation_prob if mutation_prob is not None else old_mutation
         max_steps = ck.get('max_steps', DEFAULT_MAX_STEPS)
         heads = bool(ck.get('heads', False))
+        init_dist = meta.get('init_dist', 'uniform')     # the initial soup is history; the flag is ignored on resume
         start_epoch = ck['epoch'] + 1
         meta = rd.read_meta() if rd.exists() else {}
         seed_label = meta.get('seed_label', str(seed))
@@ -226,10 +227,12 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         if rd.exists():
             sys.exit(f"Run directory {rd.path} already exists. Use --resume {rd.path} or pick another --run-dir.")
         rd.create()
-        soup = core.random_soup(num_programs, seed)
+        init_dist = init_dist or 'uniform'
+        soup = core.random_soup(num_programs, seed, core.parse_init_dist(init_dist))
         start_epoch = 0
         mutation_prob = mutation_prob or 0.0
-        meta = {'created': _now(), 'resumes': [], 'mutation_schedule': [{'from_epoch': 0, 'prob': mutation_prob}]}
+        meta = {'created': _now(), 'resumes': [], 'mutation_schedule': [{'from_epoch': 0, 'prob': mutation_prob}],
+                'init_dist': init_dist}
         if seed_programs:
             # "<file.npy>[:count]": plant copies of given programs into random slots
             path, _, count = seed_programs.partition(':')
@@ -260,7 +263,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         'stop': {'entropy': stop_entropy, 'share': stop_share, 'selfreps': stop_selfreps,
                  'after': stop_after, 'outcome': stop_outcome},
         'log_columns': LOG_COLUMNS,
-        'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob, heads)
+        'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob, heads, init_dist)
                     + ('-resumed' if meta.get('protocol') is None and resume_path else ''),
         'host': host_info(),
     })
@@ -480,6 +483,10 @@ def main(argv=None):
                         "(explicit flags win)")
     g.add_argument("--heads", action="store_true",
                    help="the paper's 'bff' variant: the first two tape bytes set the head positions, execution starts at byte 2")
+    g.add_argument("--init-dist", default=None, metavar="PRESET|SPEC",
+                   help="byte distribution of the initial soup: " + ", ".join(core.INIT_PRESETS) +
+                        ", or key:weight pairs such as '[:25 ]:12 ,:18 0:5 64:3 rest:37' (keys: instruction "
+                        "characters, byte values 0-255, 'rest' for every other value; default uniform)")
     g.add_argument("--mutation-prob", type=probability, default=None,
                    help="per-byte mutation probability per epoch (default 0; paper 1/4096 = 0.000244). "
                         "May be given on resume to change the rate from that epoch on (an experiment on the old soup)")
@@ -563,7 +570,7 @@ def main(argv=None):
         stop_entropy=args.stop_entropy, stop_share=args.stop_share,
         stop_selfreps=args.stop_selfreps, stop_after=args.stop_after, stop_outcome=bool(args.stop_outcome),
         print_interval=args.print_interval, seed_programs=args.seed_programs, archive=not args.no_archive,
-        archive_dir=args.archive_dir, protocol=args.protocol, heads=args.heads,
+        archive_dir=args.archive_dir, protocol=args.protocol, heads=args.heads, init_dist=args.init_dist,
     )
 
 

@@ -14,6 +14,8 @@ Requires: numpy, numba (brotli optional but recommended)
 
 import json
 import os
+import re
+
 import numpy as np
 from numba import njit, prange  # noqa: F401
 
@@ -47,6 +49,65 @@ COMMAND_BYTES = (LOOP_START, LOOP_END, PLUS, MINUS, COPY_TO_HEAD1, COPY_TO_HEAD0
 COMMANDS = frozenset(COMMAND_BYTES)
 IS_CMD = np.zeros(256, dtype=np.bool_)
 IS_CMD[list(COMMAND_BYTES)] = True
+OP_CHARS = '<>{}+-.,[]'
+
+# Byte distributions for the initial soup ("codon tables"). A spec is a whitespace- or
+# semicolon-separated list of key:weight pairs; a key is an instruction character, a byte value
+# 0..255 (a data byte with a meaning: 0 ends a copy loop, 64 puts a head on the partner), or
+# 'rest', whose weight is spread evenly over every value not named. Weights are relative.
+INIT_PRESETS = {
+    'uniform': None,                                                   # every byte value equally likely
+    'ops50': ' '.join(f'{c}:5' for c in OP_CHARS) + ' rest:50',        # half instructions (the BFF follow-up paper)
+    'ops100': ' '.join(f'{c}:10' for c in OP_CHARS),                   # instructions only, no data bytes
+    # instructions at the frequencies of the winners in the results collection (half the bytes),
+    # a stop byte, an alignment byte, and random data for the rest
+    'winners': '[:12.6 ,:9.1 <:6.7 ]:6.1 }:5.1 .:3.3 {:3.2 >:2.7 +:0.9 -:0.6 0:5 64:3 rest:42',
+}
+
+
+def parse_init_dist(spec):
+    """
+    Probability over the 256 byte values for the initial soup, or None for uniform.
+    `spec` is a preset name from INIT_PRESETS or a key:weight list (see above).
+    """
+    if spec is None or spec == 'uniform':
+        return None
+    spec = INIT_PRESETS.get(spec, spec)
+    weights = np.zeros(256, dtype=np.float64)
+    named = np.zeros(256, dtype=np.bool_)
+    rest = 0.0
+    for token in re.split(r'[\s;]+', spec.strip()):
+        if not token:
+            continue
+        key, sep, w = token.rpartition(':')
+        if not sep:
+            raise ValueError(f"init distribution: expected key:weight, got {token!r}")
+        w = float(w)
+        if w < 0:
+            raise ValueError(f"init distribution: negative weight in {token!r}")
+        if key == 'rest':
+            rest += w
+            continue
+        if len(key) == 1 and key in OP_CHARS:
+            b = ord(key)
+        else:
+            b = int(key)
+            if not 0 <= b <= 255:
+                raise ValueError(f"init distribution: byte value out of range in {token!r}")
+        weights[b] += w
+        named[b] = True
+    if rest > 0 and not named.all():
+        weights[~named] += rest / (~named).sum()
+    if weights.sum() <= 0:
+        raise ValueError("init distribution: all weights are zero")
+    return weights / weights.sum()
+
+
+def init_dist_label(spec):
+    """Short protocol tag for an initial distribution: '' for uniform, else '-init-<preset|custom>'."""
+    if spec is None or spec == 'uniform':
+        return ''
+    return f"-init-{spec}" if spec in INIT_PRESETS else '-init-custom'
 
 FNV_OFFSET = np.uint64(0xcbf29ce484222325)
 FNV_PRIME = np.uint64(0x100000001b3)
@@ -596,8 +657,12 @@ def epoch_rng(seed, epoch):
     return np.random.default_rng([int(seed), 1, int(epoch)])
 
 
-def random_soup(num_programs, seed):
-    return init_rng(seed).integers(0, 256, (num_programs, TAPE_SIZE), dtype=np.uint8)
+def random_soup(num_programs, seed, dist=None):
+    """Initial soup: uniform bytes, or drawn from a byte distribution (see parse_init_dist)."""
+    rng = init_rng(seed)
+    if dist is None:
+        return rng.integers(0, 256, (num_programs, TAPE_SIZE), dtype=np.uint8)
+    return rng.choice(256, size=(num_programs, TAPE_SIZE), p=dist).astype(np.uint8)
 
 
 def epoch_permutation(seed, epoch, num_programs):

@@ -132,6 +132,10 @@ simulation:
   --seed S              Random seed: a number, or any name (hashed; also the run's name).
                         Default: <host>-<date>-<letter>
   --heads               The paper's 'bff' variant: first two tape bytes set the heads, execution starts at byte 2
+  --init-dist D         Byte distribution of the initial soup: uniform (default), ops50 (half the bytes
+                        are instructions), ops100 (instructions only), winners (instructions at the
+                        frequencies of the collection's winners, plus stop and alignment bytes), or a
+                        key:weight list such as '[:25 ]:12 ,:18 0:5 64:3 rest:37'
   --mutation-prob P     Per-byte mutation probability per epoch (default: 0; paper: 0.000244).
                         Given on resume, changes the rate from that epoch on: an experiment on the
                         old soup (recorded in meta.json; the protocol label gets '-resumed')

@@ -93,19 +93,41 @@ def test_selfrep_fixtures():
     print(f"ok  selfrep: replicators {s[:len(reps)].tolist()}, random max {int(s[len(reps):].max())}")
 
 
-def test_replay_exactness():
+def test_replay_exactness(init_dist=None):
     from bff_soup import run_soup
     from bff_query import Run
     with tempfile.TemporaryDirectory() as d:
         rd = os.path.join(d, 'r')
         run_soup(num_programs=2048, max_epochs=120, seed=5, run_dir_path=rd, checkpoint_interval=40,
-                 print_interval=10 ** 9, archive=False)
+                 print_interval=10 ** 9, archive=False, init_dist=init_dist)
         run = Run(rd)
         for e in (40, 80):
             ck, _ = core.load_checkpoint(run.rd.checkpoint_path(e))
             assert np.array_equal(run.soup_at(e), ck), f"replay to {e} differs from checkpoint"
+        os.remove(run.rd.checkpoint_path(0))            # replay must regenerate the initial soup itself
+        run._soup_cache.clear(); run._cursor = None
+        assert np.array_equal(run.soup_at(40), core.load_checkpoint(run.rd.checkpoint_path(40))[0]), \
+            "replay from a regenerated initial soup differs"
         run.db.close()
-    print("ok  replay matches checkpoints")
+    print("ok  replay matches checkpoints" + (f" (init {init_dist})" if init_dist else ""))
+
+
+def test_init_dist():
+    assert core.parse_init_dist(None) is None and core.parse_init_dist('uniform') is None
+    assert np.array_equal(core.random_soup(64, 7), core.random_soup(64, 7, None))
+    d = core.parse_init_dist('ops100')
+    assert abs(d.sum() - 1) < 1e-12 and d[~core.IS_CMD].sum() == 0 and np.allclose(d[core.IS_CMD], 0.1)
+    d = core.parse_init_dist('ops50')
+    assert abs(d[core.IS_CMD].sum() - 0.5) < 1e-12 and np.allclose(d[~core.IS_CMD], 0.5 / 246)
+    d = core.parse_init_dist('[:1 0:1 rest:2')
+    assert abs(d[ord('[')] - 0.25) < 1e-12 and abs(d[0] - 0.25) < 1e-12 and abs(d[5] - 0.5 / 254) < 1e-12
+    soup = core.random_soup(4096, 3, core.parse_init_dist('winners'))
+    share = core.IS_CMD[soup].mean()
+    assert 0.47 < share < 0.53, share
+    assert (soup == 0).mean() > 0.03 and (soup == 64).mean() > 0.015
+    assert np.array_equal(soup, core.random_soup(4096, 3, core.parse_init_dist('winners'))), "not reproducible"
+    assert core.init_dist_label('ops50') == '-init-ops50' and core.init_dist_label('[:1 rest:1') == '-init-custom'
+    print("ok  initial byte distributions")
 
 
 def test_hashmap_matches_dict():
@@ -161,7 +183,9 @@ if __name__ == '__main__':
     test_interpreter_matches_reference()
     test_selfrep_fixtures()
     test_hashmap_matches_dict()
+    test_init_dist()
     with contextlib.redirect_stdout(io.StringIO()):
         test_replay_exactness()
-    print("ok  replay matches checkpoints")
+        test_replay_exactness('winners')
+    print("ok  replay matches checkpoints (uniform and winners initial soups)")
     print("all tests passed")
