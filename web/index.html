@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BFF Soup Viewer</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+<header>
+  <div class="brand">🧬 BFF Soup Viewer</div>
+  <label>Run <select id="run-select"></select></label>
+  <span id="run-status" class="muted"></span>
+  <nav>
+    <button data-tab="overview" class="active">Overview</button>
+    <button data-tab="species">Species</button>
+    <button data-tab="search">Search</button>
+    <button data-tab="lineage">Lineage</button>
+    <button data-tab="stepper">Stepper</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ------------------------------------------------------------ Overview -->
+  <section id="tab-overview" class="tab active">
+    <div class="toolbar">
+      <label>From epoch <input id="ov-from" type="number" min="0" step="100" style="width:7em"></label>
+      <label>to <input id="ov-to" type="number" min="0" step="100" style="width:7em"></label>
+      <button id="ov-apply">Apply</button>
+      <button id="ov-last">Last 500</button>
+      <button id="ov-all">All</button>
+      <label><input id="ov-auto" type="checkbox" checked> auto-refresh</label>
+      <span id="ov-transition" class="pill"></span>
+    </div>
+    <div class="grid2">
+      <div id="ov-entropy" class="chart"></div>
+      <div id="ov-bpb" class="chart"></div>
+      <div id="ov-ops" class="chart"></div>
+      <div id="ov-species" class="chart"></div>
+      <div id="ov-share" class="chart"></div>
+      <div id="ov-selfrep" class="chart"></div>
+    </div>
+    <details class="info"><summary>Run parameters</summary><pre id="ov-meta"></pre></details>
+  </section>
+
+  <!-- ------------------------------------------------------------- Species -->
+  <section id="tab-species" class="tab">
+    <div class="toolbar">
+      <label>Top <input id="sp-n" type="number" value="15" min="2" max="60" style="width:4em"> species by peak count</label>
+      <label>from <input id="sp-from" type="number" style="width:7em" placeholder="0"></label>
+      <label>to <input id="sp-to" type="number" style="width:7em" placeholder="last"></label>
+      <button id="sp-apply">Apply</button>
+      <label><input id="sp-share" type="checkbox" checked> as share of soup</label>
+    </div>
+    <div id="sp-timeline" class="chart tall"></div>
+    <div class="toolbar">
+      <label>Snapshot at epoch <input id="sp-epoch" type="range" min="0" max="0" step="1" style="width:40%"></label>
+      <span id="sp-epoch-label" class="pill"></span>
+    </div>
+    <table id="sp-table" class="data"><thead><tr>
+      <th>Count</th><th>Share</th><th>Len</th><th>Born</th><th>SelfRep</th><th>Key</th><th></th>
+    </tr></thead><tbody></tbody></table>
+  </section>
+
+  <!-- -------------------------------------------------------------- Search -->
+  <section id="tab-search" class="tab">
+    <div class="toolbar">
+      <input id="se-q" type="text" placeholder="key pattern, e.g. [[<,,,}]]" style="width:26em" class="mono">
+      <select id="se-mode">
+        <option value="substring">substring</option>
+        <option value="exact">exact</option>
+        <option value="regex">regex</option>
+        <option value="fuzzy">fuzzy</option>
+      </select>
+      <label>max dist <input id="se-dist" type="number" value="2" min="0" max="20" style="width:3.5em"></label>
+      <label>limit <input id="se-limit" type="number" value="50" min="1" max="1000" style="width:4.5em"></label>
+      <label>min peak <input id="se-min" type="number" value="0" min="0" style="width:4.5em"></label>
+      <label>in checkpoint at epoch <input id="se-epoch" type="number" placeholder="(recorded species)" style="width:10em"></label>
+      <button id="se-go">Search</button>
+    </div>
+    <div id="se-status" class="muted"></div>
+    <table id="se-table" class="data"><thead><tr>
+      <th>Born</th><th>Peak</th><th>@epoch</th><th>Latest</th><th>Len</th><th>SelfRep</th><th>Key</th><th></th>
+    </tr></thead><tbody></tbody></table>
+    <div id="se-detail" class="detail" hidden>
+      <h3 id="sd-key" class="mono"></h3>
+      <div id="sd-origin"></div>
+      <div id="sd-counts" class="chart small"></div>
+      <div class="toolbar">
+        <button id="sd-lineage">Show lineage</button>
+        <button id="sd-birth-tape">Watch its birth in the stepper</button>
+        <button id="sd-run">Run it against random partners</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------- Lineage -->
+  <section id="tab-lineage" class="tab">
+    <div class="toolbar">
+      <input id="li-key" type="text" placeholder="species key or hash" style="width:30em" class="mono">
+      <label>depth <input id="li-depth" type="number" value="8" min="1" max="40" style="width:3.5em"></label>
+      <button id="li-go">Trace</button>
+      <span class="muted">parent = what the slot held before; partner = the other half of the tape</span>
+    </div>
+    <div id="li-tree" class="tree"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------- Stepper -->
+  <section id="tab-stepper" class="tab">
+    <div class="toolbar">
+      <label>Program A <input id="st-a" type="text" class="mono" style="width:22em" placeholder="instructions, e.g. [[<,,,}]]}}]]},,,<[["></label>
+      <label>Program B <input id="st-b" type="text" class="mono" style="width:22em" placeholder="empty = random bytes"></label>
+      <button id="st-load">Load</button>
+      <button id="st-swap">Swap A/B</button>
+      <span id="st-source" class="muted"></span>
+    </div>
+    <div class="toolbar">
+      <button id="st-step">Step</button>
+      <button id="st-step10">Step ×10</button>
+      <button id="st-play">▶ Play</button>
+      <button id="st-end">Run to end</button>
+      <button id="st-reset">Reset</button>
+      <label>speed <input id="st-speed" type="range" min="1" max="200" value="30"></label>
+      <button id="st-next-gen">Next generation ⟶</button>
+      <button id="st-selfrep">Test self-replication</button>
+      <span id="st-status" class="pill"></span>
+    </div>
+    <div class="tape-wrap">
+      <div class="tape-label">first half (slot A)</div>
+      <div id="st-tape-a" class="tape"></div>
+      <div class="tape-label">second half (slot B)</div>
+      <div id="st-tape-b" class="tape"></div>
+    </div>
+    <div class="legend">
+      <span class="lg pc">pc</span> <span class="lg h0">head0</span> <span class="lg h1">head1</span>
+      <span class="lg cmd">instruction</span> <span class="lg data">data byte</span> <span class="lg written">just written</span>
+    </div>
+    <div class="grid2">
+      <div><div class="tape-label">keys now</div><pre id="st-keys" class="mono"></pre></div>
+      <div><div class="tape-label">keys before this run</div><pre id="st-keys-before" class="mono"></pre></div>
+    </div>
+    <details class="info"><summary>Instruction reference</summary>
+      <pre>&lt; &gt;  move head0     { }  move head1     + -  inc/dec byte at head0
+.    tape[head1] = tape[head0]        ,    tape[head0] = tape[head1]
+[    jump past matching ] if tape[head0] == 0
+]    jump back to matching [ if tape[head0] != 0
+Both heads and the program counter start at 0; heads wrap modulo 128.
+Execution stops when the program counter leaves the tape, a bracket is unmatched, or the step budget is spent.</pre>
+    </details>
+  </section>
+</main>
+<div id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
