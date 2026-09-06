@@ -17,6 +17,9 @@ import sys
 import time
 
 # column aliases so both this simulator's log and cubff's log can be read
+TRANSITION_ENTROPY = 3.0     # a run has transitioned once entropy exceeded this
+COLLAPSE_ENTROPY = 2.5       # ... and has collapsed if entropy later falls below this
+
 ALIASES = {
     'brotli_size': 'compressed_size',
     'soup_size': 'soup_bytes',
@@ -104,8 +107,14 @@ def status_lines(data):
     last = {k: v[-1] for k, v in data.items() if v}
     entropy = last.get('higher_entropy', 0.0)
     max_entropy = max(data['higher_entropy']) if data.get('higher_entropy') else 0.0
-    status = ("🔴 Pre-life" if max_entropy < 1.0 else
-              "🟢 TRANSITION DETECTED!" if max_entropy > 3.0 else "🟡 Evolving...")
+    if max_entropy < 1.0:
+        status = "🔴 Pre-life"
+    elif max_entropy <= TRANSITION_ENTROPY:
+        status = "🟡 Evolving..."
+    elif entropy < COLLAPSE_ENTROPY:
+        status = f"🟠 COLLAPSED (entropy back below {COLLAPSE_ENTROPY} after a transition)"
+    else:
+        status = "🟢 TRANSITION DETECTED!"
     line1 = (f"Epoch: {last['epoch']:,} | Entropy: {entropy:.4f} | Max Entropy: {max_entropy:.4f}"
              f" | Bits/byte: {last.get('bpb', 0.0):.2f} | {status}")
     extras = []
@@ -148,38 +157,45 @@ def main():
     print(f"📁 Monitoring: {log_file}")
     print("Press Ctrl+C to stop\n")
 
+    print("\033[2J", end="")          # clear once; later frames overwrite in place (no flicker)
     try:
         while True:
-            os.system('clear' if os.name != 'nt' else 'cls')
+            out = []
             data = read_log(log_file)
             if last_n and data.get('epoch'):
                 for key in data:
                     data[key] = data[key][-last_n:]
 
-            print("=" * 75)
-            print(f"  BFF PRIMORDIAL SOUP EXPERIMENT - REAL-TIME MONITOR{zoom_msg}")
-            print("=" * 75)
-            print()
+            out.append("=" * 75)
+            out.append(f"  BFF PRIMORDIAL SOUP EXPERIMENT - REAL-TIME MONITOR{zoom_msg}")
+            out.append("=" * 75)
+            out.append("")
 
             epochs = data.get('epoch', [])
             min_ep = epochs[0] if epochs else 0
             max_ep = epochs[-1] if epochs else 0
-            print(ascii_graph(data.get('higher_entropy', []), width=60, height=12,
-                              title="Higher-Order Entropy (complexity metric)",
-                              min_epoch=min_ep, max_epoch=max_ep))
-            print()
-            print(ascii_graph(data.get('bpb', []), width=60, height=8,
-                              title="Bits per Byte (compression - lower = more structure)",
-                              min_epoch=min_ep, max_epoch=max_ep))
-            print()
-            print("-" * 75)
-            for line in status_lines(data):
-                print(line)
-            print("-" * 75)
-            print("\n📊 What to look for:")
-            print("   • Entropy spike to 4-6 = Phase transition (life emerges!)")
-            print("   • Bits per byte drop = Structure forming (replicators taking over)")
-            print(f"\n⏱️  Last update: {time.strftime('%H:%M:%S')}")
+            out.append(ascii_graph(data.get('higher_entropy', []), width=60, height=12,
+                                   title="Higher-Order Entropy (complexity metric)",
+                                   min_epoch=min_ep, max_epoch=max_ep))
+            out.append("")
+            out.append(ascii_graph(data.get('bpb', []), width=60, height=8,
+                                   title="Bits per Byte (compression - lower = more structure)",
+                                   min_epoch=min_ep, max_epoch=max_ep))
+            out.append("")
+            out.append("-" * 75)
+            out += status_lines(data)
+            out.append("-" * 75)
+            out.append("")
+            out.append("📊 What to look for:")
+            out.append("   • Entropy above 3 = Phase transition (life emerges!)")
+            out.append("   • Bits per byte drop = Structure forming (replicators taking over)")
+            out.append("   • Entropy falling below 2.5 again = the replicators are gone")
+            out.append("")
+            out.append(f"⏱️  Last update: {time.strftime('%H:%M:%S')}")
+            # home the cursor, print every line padded and cleared to its end, then clear below
+            frame = "\033[H" + "\n".join(line + "\033[K" for line in "\n".join(out).split("\n")) + "\033[J"
+            sys.stdout.write(frame)
+            sys.stdout.flush()
             time.sleep(2)
 
     except KeyboardInterrupt:
