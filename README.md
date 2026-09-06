@@ -172,7 +172,9 @@ stop conditions (optional):
   --cull-replicators N  Origin-rate experiment: every --cull-interval epochs (default 4) test the most
                         common long species, replace every copy of any self-replicator (and its near-variants)
                         by fresh random programs from the run's initial distribution, stop after N removals.
-                        `bff_query.py culls <run>` lists the removals clustered into distinct origins
+                        Every removal is an origin, recorded with its raw bytes in runs/<name>/culls.jsonl;
+                        `bff_query.py culls <run>` tallies origins and engines, `--export FILE.npy` writes
+                        the harvested programs for --seed-programs
 ```
 
 ### Performance notes

@@ -642,8 +642,12 @@ def main(argv=None):
     s = sub.add_parser('info', help='run summary')
     s.add_argument('run')
 
-    s = sub.add_parser('culls', help='origin-rate experiment: the removed replicators, clustered into distinct origins')
+    s = sub.add_parser('culls', help='origin-rate experiment: the removed replicators (origins) and their engines')
     s.add_argument('run')
+    s.add_argument('--export', metavar='FILE.npy', default=None,
+                   help='write the raw 64-byte programs of the origins to FILE.npy (one per origin, in order of '
+                        'appearance; usable with --seed-programs); scores go to FILE.scores.npy')
+    s.add_argument('--min-score', type=int, default=None, help='with --export: keep origins scoring at least this (default: all)')
 
     s = sub.add_parser('variants', help='split the non-replicating near-variants of the dominant replicator into hijackers, killers and debris')
     s.add_argument('run'); s.add_argument('--epoch', type=int, default=None, help='checkpoint at/below this epoch (default: latest)')
@@ -663,6 +667,16 @@ def main(argv=None):
         if not ev:
             print("no replicators were removed in this run (was it started with --cull-replicators?)"); return
         last = run.last_epoch()
+        if a.export:
+            keep = [c for c in ev if c.get('program') and (a.min_score is None or c['score'] >= a.min_score)]
+            if not keep:
+                print("no origin in this run has its program bytes recorded (runs before 2026-09-07 stored keys only)"); return
+            progs = np.array([np.frombuffer(bytes.fromhex(c['program']), dtype=np.uint8) for c in keep], dtype=np.uint8)
+            np.save(a.export, progs)
+            np.save(a.export[:-4] + '.scores.npy' if a.export.endswith('.npy') else a.export + '.scores.npy',
+                    np.array([c['score'] for c in keep], dtype=np.int32))
+            print(f"wrote {len(keep)} programs ({len(ev) - len(keep)} origins skipped) to {a.export}")
+            return
         # every removal is an origin (its lineage was swept with it); group the origins by engine, i.e. by
         # shared innermost copy loop or a few edits, to see which engines the soup finds and how often
         keys = [c['key'] for c in ev]

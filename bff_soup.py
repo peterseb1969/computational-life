@@ -419,12 +419,14 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                     # re-forms from); the tested hit is logged as the removal, the rest as its lineage.
                     all_keys = None
                     doomed = {}
+                    programs = {}
                     for k in hits:
                         i = cand[k]
                         key = core.program_key(soup[first_idx[i]])
                         if int(i) in doomed:
                             continue
                         doomed[int(i)] = (key, int(scores[k]), 'replicator')
+                        programs[int(i)] = soup[first_idx[i]].tobytes().hex()     # the raw bytes, head values included
                         loops = core.copy_loops(key)
                         if all_keys is None:
                             all_keys = [core.program_key(soup[j]) for j in first_idx]
@@ -444,6 +446,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                         event = {'epoch': epoch, 'key': key, 'count': int(slots.size), 'score': score, 'kind': kind}
                         if kind == 'replicator':
                             n_removed += 1
+                            event['program'] = programs[i]
                         culls.append(event)
                         with open(culls_path, 'a') as f:
                             f.write(json.dumps(event) + '\n')
