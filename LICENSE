@@ -6,8 +6,8 @@ This license covers the code added in this fork (bff_core.py, bff_lineage.py,
 bff_hash.py, bff_soup.py, bff_query.py, bff_web.py, bff_archive.py,
 bff_compare.py, bff_analysis.py, visualize_bff.py, web/, tests/, testdata/).
 The original project this fork is based on, github.com/gustavsoderstrom/computational-life,
-carries no license file; its remaining parts (portions of the README and the
-screenshot) are used with attribution.
+carries no license file; its remaining parts (portions of the README) are used
+with attribution.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

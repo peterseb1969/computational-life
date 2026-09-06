@@ -6,8 +6,6 @@ A simple and basic (Numba-accelerated) Python implementation of the BFF (Brainfu
 
 This demonstrates how **self-replicating programs can emerge spontaneously** from random programs through self-modification — no fitness function, no selection pressure, just random interactions.
 
-![Computational Life - BFF Primordial Soup experiment showing phase transition](computational_life.jpg)
-
 ## How It Works
 
 1. Start with a "soup" of random 64-byte programs with completely randomized byte values (only 10 of which correspond to actual brainfuck instructions, meaning only about ~4% of cells will actually have any type of instruction at all in them and, the rest are just no-ops)
