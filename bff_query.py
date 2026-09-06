@@ -98,6 +98,9 @@ class Run:
         self.min_len = self.meta.get('lineage_min_len', 8)
         self.max_steps = self.meta.get('max_steps', core.DEFAULT_MAX_STEPS)
         self.mutation_int = int(round(self.meta.get('mutation_prob', 0.0) * (1 << 30)))
+        # the rate may have been changed on a resume: (from_epoch, rate) pairs, ascending
+        self.mutation_schedule = [(int(x['from_epoch']), int(round(x['prob'] * (1 << 30))))
+                                  for x in self.meta.get('mutation_schedule') or [{'from_epoch': 0, 'prob': self.meta.get('mutation_prob', 0.0)}]]
         self.heads = bool(self.meta.get('heads', False))
         self.db = open_db(self.rd)
         self.db.create_function("REGEXP", 2, lambda pat, s: s is not None and re.search(pat, s) is not None)
@@ -487,6 +490,13 @@ class Run:
         return node
 
     # -- replay ------------------------------------------------------------------
+    def mutation_at(self, epoch):
+        rate = self.mutation_schedule[0][1]
+        for from_epoch, r in self.mutation_schedule:
+            if epoch >= from_epoch:
+                rate = r
+        return rate
+
     def checkpoint_at_or_before(self, epoch):
         cps = [(e, p) for e, p in self.checkpoints() if e <= epoch]
         if not cps:
@@ -519,7 +529,7 @@ class Run:
         ops = np.empty(self.num_programs // 2, dtype=np.int64)
         # checkpoint file 0 is the initial soup (before epoch 0); file e > 0 is the soup after epoch e
         for e in range(first, epoch + 1):
-            core.run_epoch(soup, self.perm(e), self.max_steps, self.mutation_int, e, ops, self.heads)
+            core.run_epoch(soup, self.perm(e), self.max_steps, self.mutation_at(e), e, ops, self.heads)
         self._cursor = (epoch, soup.copy())
         return self._remember(epoch, soup)
 

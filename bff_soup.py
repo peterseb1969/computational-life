@@ -89,7 +89,7 @@ def _warmup():
 
 def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
              checkpoint_interval=256, resume_path=None,
-             mutation_prob=0.0, max_steps=DEFAULT_MAX_STEPS,
+             mutation_prob=None, max_steps=DEFAULT_MAX_STEPS,
              metric_interval=1, metric_sample=0,
              species_interval=32, selfrep_interval=256, selfrep_top=512,
              lineage_min_len=DEFAULT_MIN_LEN, lineage_budget_mb=DEFAULT_BUDGET_MB,
@@ -117,7 +117,9 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             sys.exit("Checkpoint 0 is the initial soup; delete the run directory and start a fresh run instead.")
         num_programs = ck['num_programs']
         seed = ck['seed']
-        mutation_prob = ck.get('mutation_prob', 0.0)
+        old_mutation = ck.get('mutation_prob', 0.0)
+        mutation_changed = mutation_prob is not None and mutation_prob != old_mutation
+        mutation_prob = mutation_prob if mutation_prob is not None else old_mutation
         max_steps = ck.get('max_steps', DEFAULT_MAX_STEPS)
         heads = bool(ck.get('heads', False))
         start_epoch = ck['epoch'] + 1
@@ -137,7 +139,18 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         promote_count = promote_count if promote_count is not None else meta.get('promote_count', DEFAULT_PROMOTE_COUNT)
         cascade_depth = cascade_depth if cascade_depth is not None else meta.get('cascade_depth', DEFAULT_CASCADE_DEPTH)
         cascade_max = cascade_max if cascade_max is not None else meta.get('cascade_max', DEFAULT_CASCADE_MAX)
-        meta.setdefault('resumes', []).append({'from': ckpt, 'epoch': start_epoch, 'time': _now()})
+        resume_note = {'from': ckpt, 'epoch': start_epoch, 'time': _now()}
+        if mutation_changed:
+            # an experiment on the old soup, not a continuation: the trajectory diverges from here
+            resume_note['mutation_prob_changed'] = {'from': old_mutation, 'to': mutation_prob}
+            meta['protocol'] = None                 # re-derived below with the new rate
+            print(f"Mutation rate changed from {old_mutation:g} to {mutation_prob:g} at epoch {start_epoch}: "
+                  f"the run diverges from its original trajectory from here on.")
+        meta.setdefault('resumes', []).append(resume_note)
+        schedule = meta.get('mutation_schedule') or [{'from_epoch': 0, 'prob': old_mutation}]
+        if mutation_changed:
+            schedule.append({'from_epoch': start_epoch, 'prob': mutation_prob})
+        meta['mutation_schedule'] = schedule
         truncate_log(rd.log_path, ck['epoch'])
         print(f"Resuming {rd.path} from {ckpt} at epoch {start_epoch}")
     else:
@@ -149,7 +162,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         rd.create()
         soup = core.random_soup(num_programs, seed)
         start_epoch = 0
-        meta = {'created': _now(), 'resumes': []}
+        mutation_prob = mutation_prob or 0.0
+        meta = {'created': _now(), 'resumes': [], 'mutation_schedule': [{'from_epoch': 0, 'prob': mutation_prob}]}
         if seed_programs:
             # "<file.npy>[:count]": plant copies of given programs into random slots
             path, _, count = seed_programs.partition(':')
@@ -180,7 +194,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         'stop': {'entropy': stop_entropy, 'share': stop_share, 'selfreps': stop_selfreps,
                  'after': stop_after},
         'log_columns': LOG_COLUMNS,
-        'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob, heads),
+        'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob, heads)
+                    + ('-resumed' if meta.get('protocol') is None and resume_path else ''),
         'host': host_info(),
     })
     rd.write_meta(meta)
@@ -376,8 +391,9 @@ def main(argv=None):
                         "replicators hold half the soup, cap 100000 epochs (explicit flags win)")
     g.add_argument("--heads", action="store_true",
                    help="the paper's 'bff' variant: the first two tape bytes set the head positions, execution starts at byte 2")
-    g.add_argument("--mutation-prob", type=float, default=0.0,
-                   help="per-byte mutation probability per epoch (paper default 1/4096 = 0.000244)")
+    g.add_argument("--mutation-prob", type=float, default=None,
+                   help="per-byte mutation probability per epoch (default 0; paper 1/4096 = 0.000244). "
+                        "May be given on resume to change the rate from that epoch on (an experiment on the old soup)")
     g.add_argument("--max-steps", type=int, default=None,
                    help=f"step budget per tape execution (default {DEFAULT_MAX_STEPS}; 8192 with --stats, as in the paper)")
     g.add_argument("--seed-programs", type=str, default=None, metavar="FILE.npy[:COUNT]",

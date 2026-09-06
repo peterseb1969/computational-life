@@ -130,7 +130,9 @@ simulation:
   --seed S              Random seed: a number, or any name (hashed; also the run's name).
                         Default: <host>-<date>-<letter>
   --heads               The paper's 'bff' variant: first two tape bytes set the heads, execution starts at byte 2
-  --mutation-prob P     Per-byte mutation probability per epoch (default: 0; paper: 0.000244)
+  --mutation-prob P     Per-byte mutation probability per epoch (default: 0; paper: 0.000244).
+                        Given on resume, changes the rate from that epoch on: an experiment on the
+                        old soup (recorded in meta.json; the protocol label gets '-resumed')
   --max-steps N         Step budget per tape execution (default: 32768; paper: 8192)
   --seed-programs F.npy[:N]  Plant N copies of the programs in F (n x 64 uint8) into random slots
 output:
