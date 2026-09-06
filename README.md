@@ -103,7 +103,7 @@ Every run writes to `runs/<seed>` (or `--run-dir`):
 | `species.db` | SQLite: recorded species with their birth event, key texts of snapshot species, species counts every `--species-interval` epochs, self-replication scores |
 | `pending.npz` | The recorder's rolling window, saved on exit so a resume from the final checkpoint continues exactly |
 
-Run directories are large (about 8 MB per checkpoint) and are not committed; the durable output is the archive, see below.
+Run directories are large: a 100k-epoch run with the defaults takes 3 to 8 GB (8 MB per checkpoint, up to 2 GB of change records). The `--stats` preset keeps a run near 1 GB. They are not committed; the durable output is the archive, see below.
 
 ### Program identity and what gets recorded
 
@@ -125,7 +125,8 @@ python3 bff_soup.py --resume runs/44/checkpoints/0000010240.dat     # a specific
 ```
 simulation:
   --stats               Preset: 131072 programs, 8192 steps, sampled metrics, --stop-outcome
-                        --stop-after 2048, cap 100000 epochs (explicit flags win)
+                        --stop-after 2048, cap 100000 epochs, checkpoints every 1024 epochs, 256 MB
+                        change log (explicit flags win)
   --num N               Number of programs, even (default: 1024)
   --epochs N            Run until this epoch number (default: 10000)
   --seed S              Random seed: a number, or any name (hashed; also the run's name).

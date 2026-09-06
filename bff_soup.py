@@ -446,7 +446,8 @@ def main(argv=None):
                         "Default: <host>-<date>-<letter>")
     g.add_argument("--stats", action="store_true",
                    help="statistics preset: 131072 programs, 8192 steps, sampled metrics, --stop-outcome with "
-                        "--stop-after 2048, cap 100000 epochs (explicit flags win)")
+                        "--stop-after 2048, cap 100000 epochs, checkpoints every 1024 epochs, 256 MB change log "
+                        "(explicit flags win)")
     g.add_argument("--heads", action="store_true",
                    help="the paper's 'bff' variant: the first two tape bytes set the head positions, execution starts at byte 2")
     g.add_argument("--mutation-prob", type=float, default=None,
@@ -462,7 +463,7 @@ def main(argv=None):
                    help="run directory (latest checkpoint) or checkpoint file to resume from; "
                         "the run's recorded settings are kept, only --epochs, stop conditions, "
                         "--print-interval and the recording policy flags apply")
-    g.add_argument("--checkpoint-interval", type=int, default=256, help="epochs between checkpoints (0=off)")
+    g.add_argument("--checkpoint-interval", type=int, default=None, help="epochs between checkpoints (default 256; 1024 with --stats; 0=off)")
     g.add_argument("--species-interval", type=int, default=32,
                    help="epochs between species-count snapshots (0=off)")
     g.add_argument("--selfrep-interval", type=int, default=256,
@@ -471,8 +472,8 @@ def main(argv=None):
                    help="number of most common species to test for self-replication")
     g.add_argument("--lineage-min-len", type=int, default=DEFAULT_MIN_LEN,
                    help="track births/changes only for keys with at least this many instructions")
-    g.add_argument("--lineage-budget-mb", type=float, default=DEFAULT_BUDGET_MB,
-                   help="stop appending change records once changes.bin reaches this size")
+    g.add_argument("--lineage-budget-mb", type=float, default=None,
+                   help=f"stop appending change records once changes.bin reaches this size (default {DEFAULT_BUDGET_MB}; 256 with --stats)")
     g.add_argument("--lineage-window", type=int, default=None,
                    help=f"epochs a birth is remembered while waiting to be promoted (default {DEFAULT_WINDOW})")
     g.add_argument("--promote-count", type=int, default=None,
@@ -507,10 +508,13 @@ def main(argv=None):
     # defaults, with the --stats preset filling in what was not given explicitly
     # stop on emergence (replicators in 1% of the soup) plus enough epochs to see whether a takeover,
     # a parasite or a collapse follows; a takeover criterion alone can wait forever
+    # statistics runs keep their disk footprint small: checkpoints every 1024 epochs (replays take
+    # a minute instead of seconds) and a 256 MB change log instead of 2 GB
     preset = ({'num': 131072, 'epochs': 100000, 'max_steps': 8192, 'metric_sample': 32768,
-               'stop_after': 2048, 'stop_outcome': True} if args.stats else {})
+               'stop_after': 2048, 'stop_outcome': True, 'checkpoint_interval': 1024,
+               'lineage_budget_mb': 256.0} if args.stats else {})
     base = {'num': 1024, 'epochs': 10000, 'max_steps': DEFAULT_MAX_STEPS, 'metric_sample': 0,
-            'stop_after': 0, 'stop_outcome': False}
+            'stop_after': 0, 'stop_outcome': False, 'checkpoint_interval': 256, 'lineage_budget_mb': DEFAULT_BUDGET_MB}
     for k, v in base.items():
         if getattr(args, k) is None:
             setattr(args, k, preset.get(k, v))
