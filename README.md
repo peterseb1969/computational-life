@@ -130,7 +130,8 @@ simulation:
   --num N               Number of programs, even (default: 1024)
   --epochs N            Run until this epoch number (default: 10000)
   --seed S              Random seed: a number, or any name (hashed; also the run's name).
-                        Default: <host>-<date>-<letter>
+                        Default: <host>-<date>-<letter>, the letter after the last one used today
+                        (runs/.names remembers names whose directories were deleted)
   --heads               The paper's 'bff' variant: first two tape bytes set the heads, execution starts at byte 2
   --init-dist D         Byte distribution of the initial soup: uniform (default), ops50 (half the bytes
                         are instructions), ops100 (instructions only), winners (instructions at the

@@ -130,15 +130,40 @@ def protocol_name(num_programs, max_steps, mutation_prob, heads=False, init_dist
     return f"{size}-{max_steps}{mut}" + ("-heads" if heads else "") + core.init_dist_label(init_dist)
 
 
-def default_seed_name(runs_root='runs'):
-    """<host>-<date>-<letter>: the first letter whose run directory does not exist yet."""
+def _letter_suffix(i):
+    return (chr(ord('a') + i // 26 - 1) if i >= 26 else '') + chr(ord('a') + i % 26)
+
+
+def default_seed_name(runs_root='runs', archive_dir='archive'):
+    """
+    <host>-<date>-<letter>: the letter after the last one used today. A name counts as used when
+    its run directory exists, an archive of it exists, or it is listed in the ledger runs/.names,
+    so that deleting old run directories does not hand their names to new runs.
+    """
     stem = f"{host_name()}-{datetime.now().strftime('%Y%m%d')}"
-    for i in range(26 * 27):
-        suffix = (chr(ord('a') + i // 26 - 1) if i >= 26 else '') + chr(ord('a') + i % 26)
-        name = f"{stem}-{suffix}"
-        if not os.path.exists(os.path.join(runs_root, name)):
-            return name
-    raise RuntimeError("too many runs today")
+    used = set()
+    for root in (runs_root, archive_dir):
+        if os.path.isdir(root):
+            for entry in os.listdir(root):
+                entry = entry[:-5] if entry.endswith('.json') else entry
+                if entry.startswith(stem + '-'):
+                    used.add(entry[len(stem) + 1:])
+    ledger = os.path.join(runs_root, '.names')
+    if os.path.exists(ledger):
+        with open(ledger) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(stem + '-'):
+                    used.add(line[len(stem) + 1:])
+    suffixes = [_letter_suffix(i) for i in range(26 * 27)]
+    last = max((suffixes.index(u) for u in used if u in suffixes), default=-1)
+    if last + 1 >= len(suffixes):
+        raise RuntimeError("too many runs today")
+    name = f"{stem}-{suffixes[last + 1]}"
+    os.makedirs(runs_root, exist_ok=True)
+    with open(ledger, 'a') as f:
+        f.write(name + '\n')
+    return name
 
 
 def _warmup():
@@ -587,7 +612,7 @@ def main(argv=None):
         if getattr(args, k) is None:
             setattr(args, k, preset.get(k, v))
     if args.seed is None and not args.resume:
-        args.seed = default_seed_name(os.path.dirname(args.run_dir) if args.run_dir else 'runs')
+        args.seed = default_seed_name(os.path.dirname(args.run_dir) if args.run_dir else 'runs', args.archive_dir)
 
     run_soup(
         num_programs=args.num, max_epochs=args.epochs, seed=args.seed,
