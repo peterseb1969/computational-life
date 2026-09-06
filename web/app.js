@@ -89,6 +89,7 @@ async function selectRun(name) {
   setHash({ run: name });
   state.info = await api('info');
   const m = state.info.meta;
+  $('#st-heads').checked = !!m.heads;      // the stepper follows the run's variant unless the user changes it
   $('#run-status').innerHTML = statusText(state.info);
   $('#ov-meta').textContent = JSON.stringify(m, null, 2);
   state.ovMode = 'all';
@@ -369,7 +370,8 @@ function parseProgram(text) {
   return out;
 }
 function loadTape(tape, source, expectedAfter = null, maxSteps = 32768, heads = null) {
-  if (heads === null) heads = !!(state.info && state.info.meta && state.info.meta.heads);
+  if (heads === null) heads = $('#st-heads').checked;
+  else $('#st-heads').checked = heads;
   st.vm = new BFF(tape, maxSteps, heads);
   st.expectedAfter = expectedAfter;
   st.source = source;

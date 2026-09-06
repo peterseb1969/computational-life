@@ -35,6 +35,9 @@ import numpy as np
 
 import bff_core as core
 from bff_core import TAPE_SIZE, DEFAULT_MAX_STEPS, SELFREP_THRESHOLD
+
+SPIKE_TEST_SHARE = 0.01     # a species reaching this share (and doubling since the last test) is tested at once
+SPIKE_MIN_LEN = 5           # ... if it has at least this many instructions
 from bff_lineage import (RunDir, LineageWriter, truncate_log, migrate_log, DEFAULT_MIN_LEN, DEFAULT_BUDGET_MB,
                          DEFAULT_WINDOW, DEFAULT_PROMOTE_COUNT, DEFAULT_CASCADE_DEPTH, DEFAULT_CASCADE_MAX)
 # imported up front so that a code update during a long run cannot leave the exit-time archive
@@ -293,6 +296,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     stop_at = None
     outcome = OutcomeDetector(num_programs) if stop_outcome else None
     selfrep_slots = -1
+    tested_share = 0.0              # top share at the last self-replication test
     parasite_slots = -1
     if resume_path:   # carry the last known self-replicator count across the resume
         last = lineage.db.execute("SELECT MAX(epoch) FROM selfrep").fetchone()[0]
@@ -353,7 +357,16 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 lineage.record_counts(epoch, uniq, counts, soup, first_idx)
 
             # -- self-replication test on the most common species ------------
-            if selfrep_interval and epoch % selfrep_interval == 0:
+            due = bool(selfrep_interval) and epoch % selfrep_interval == 0
+            # a species that has at least doubled since the last test and already holds a percent of
+            # the soup is tested right away: a burst can rise and collapse between two regular tests
+            if not due and species_interval and epoch % species_interval == 0:
+                long_enough = cur_len[first_idx] >= SPIKE_MIN_LEN     # the empty and one-byte keys never count
+                spike_share = counts[long_enough].max() / num_programs if long_enough.any() else 0.0
+                if spike_share >= SPIKE_TEST_SHARE and spike_share >= 2 * tested_share:
+                    due = True
+            if due:
+                tested_share = top_share
                 order = np.argsort(-counts, kind='stable')[:selfrep_top]
                 reps = soup[first_idx[order]]
                 scores = core.selfrep_test(reps, seed=epoch, max_steps=max_steps, heads_init=heads)

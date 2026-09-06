@@ -114,6 +114,7 @@
       <label>Program B <input id="st-b" type="text" class="mono" style="width:20em" placeholder="empty = random bytes"></label>
       <button id="st-b-soup" title="replace the key in B by the raw 64 bytes of a real instance from the soup">B from soup</button>
       <label>at epoch <input id="st-epoch" type="number" style="width:7em" placeholder="latest"></label>
+      <label title="heads variant: the first two bytes of the tape set head0 and head1, execution starts at byte 2"><input id="st-heads" type="checkbox"> heads</label>
       <button id="st-load">Load</button>
       <button id="st-swap">Swap A/B</button>
       <span id="st-source" class="muted"></span>
@@ -149,6 +150,7 @@
 [    jump past matching ] if tape[head0] == 0
 ]    jump back to matching [ if tape[head0] != 0
 Both heads and the program counter start at 0; heads wrap modulo 128.
+With <b>heads</b> ticked, head0 and head1 start at the tape's first two bytes (modulo 128) and the program counter at 2.
 Execution stops when the program counter leaves the tape, a bracket is unmatched, or the step budget is spent.</pre>
     </details>
   </section>

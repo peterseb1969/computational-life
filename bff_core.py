@@ -458,13 +458,20 @@ def parasite_load(keys, counts, scores, threshold=SELFREP_THRESHOLD, max_dist=4)
             continue
         for h in hosts:
             hk = keys[h]
-            if abs(len(k) - len(hk)) > max_dist:
-                continue
-            if edit_distance(k, hk) <= max_dist or edit_distance(k, hk[::-1]) <= max_dist:
+            if _near(k, hk, variant_distance(hk, max_dist)):
                 slots += int(counts[i])
                 n_cand += 1
                 break
     return int(slots), n_cand
+
+
+def variant_distance(host_key, max_dist=4):
+    """
+    Edit distance within which a species counts as a near-variant of `host_key`: at most
+    `max_dist`, and never more than half the host's instructions, so that a 6-instruction
+    replicator does not sweep every 2-instruction program (or the empty one) into its load.
+    """
+    return max(1, min(max_dist, (len(host_key) - 1) // 2))
 
 
 def _near(a, b, d):
@@ -501,7 +508,7 @@ def classify_variants(soup, max_steps, heads=False, top=512, trials=8, max_dist=
     for i, k in enumerate(keys):
         if sc[i] >= SELFREP_THRESHOLD or not k:
             continue
-        if not any(_near(k, keys[j], max_dist) for j in hosts):
+        if not any(_near(k, keys[j], variant_distance(keys[j], max_dist)) for j in hosts):
             continue
         hij = kill = 0
         for _ in range(trials):

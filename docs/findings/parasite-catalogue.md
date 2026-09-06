@@ -1,6 +1,6 @@
 # Catalogue of hosts and parasites
 
-Every host and parasite pair encountered so far, with the raw bytes of a real instance of each so the pair can be replayed in the viewer's stepper without regenerating a run. All runs: protocol `128k-8192` (131,072 programs, 8192 steps per tape, no mutation, heads start at 0).
+Every host and parasite pair encountered so far, with the raw bytes of a real instance of each so the pair can be replayed in the viewer's stepper without regenerating a run. Cases 1 to 4: protocol `128k-8192` (131,072 programs, 8192 steps per tape, no mutation, heads start at 0). Case 5 is from the heads variant, `128k-8192-heads`, where the first two bytes of a tape set the heads; tick **heads** in the stepper before loading it.
 
 **How to replay a pair.** The hex strings below are the raw 64 bytes of real instances and can be pasted straight into the stepper:
 
@@ -145,6 +145,42 @@ Why this pair coexists where case 1 ended in extinction: the host never swept th
 
 ---
 
+## 5. Mac mini `-j` (heads): `[,{<][,{<]`, a replicator killed by its own debris
+
+*Mac mini, run `peters-mac-mini-m4-pro-20260906-j`, protocol `128k-8192-heads`. Emergence 3.2k; 22 percent of the soup at 3,260; extinct by 3,500; the soup a zero-flooded desert ever since. Full account in [self-poisoning-mini-j.md](self-poisoning-mini-j.md).*
+
+Not a host and parasite pair: the variants here reproduce nothing and hijack nothing. They are copies of the host with clipped head bytes, and they kill. The host is a 32-byte unit repeated twice; its head bytes put head0 at the end of the tape and head1 at the end of the unit, and the loop `[,{<]` copies the unit backwards over the partner while the destination byte is not zero. Tick **heads** in the stepper before Load.
+
+Host, bytes to paste:
+
+```
+ff1ff850f8f0795f5b462c7b00237490653c5d3d000101010101010001010000ff1ff850f8f0795f5b462c7b00237490653c5d3d000101010101010001010000
+```
+
+A zero-free partner from the soup at epoch 3,200, bytes to paste:
+
+```
+393939393939393939393939393d2c393c3838393838383838de2cde5dde2c28d5de0e87199142329095907236642c4e4d38f25d611f2322c1c18538a73e3858
+```
+
+Killer debris `[,{<][,{<]` with heads 67 and 0 (same ten instructions, score 0), from epoch 3,300, bytes to paste:
+
+```
+43001615f8f0795f5b462c7b00237490653c5d0000010101010101008b640000ff1ff850f8f0795f5b462c7b00237490653c5d3d00640000f80101008b640001
+```
+
+| Tape | Outcome |
+|---|---|
+| host, zero-free partner | host, host: 100% |
+| host, partner with a zero byte | partner converted: 6% |
+| host, host | nothing changes |
+| debris, host | host loses its head bytes: 27% |
+| host, debris | debris repaired: 0% |
+
+The host's loop tests the destination, so every zero blocks it and every copy it makes plants five zeros. Within a hundred epochs the soup had no zero-free tape left (61 percent before the spike, 0.3 percent after), births stopped, and the debris went on clipping the survivors' head bytes. The later self-replicating blips in this run (`-[,{<]`, `<[,{<]`, `<,{[,{<][,{`, 35 to 500 slots each) are the same loop reassembled; they score 64 against random partners and convert nothing in their own soup.
+
+---
+
 ## Not a parasite: run 45's `{<[[>.,,{,,.>[[<{`
 
 The host `{<[[>.,,{]{,,.>[[<{` (19 instructions, palindrome, score 64, 20% of the soup at 60k) is accompanied by loopless variants such as `{<[[>.,,{,,.>[[<{` at 1 to 2%. Preceding the host, this variant destroys both halves in 94% of cases and is never copied; preceding background it destroys itself in 90%. A broken copy that neither reproduces nor spreads, kept at a low level only by being produced. Listed here as the counterexample: not every loopless variant is a parasite.
@@ -178,3 +214,4 @@ The same four hosts, the same numbers within a few percent. A host that lands in
 - Whoever runs first wins the host-parasite encounter; the difference is made by the background, which destroys hosts and spares parasites.
 - The outcome depends on how far the host got before the parasite rose. A host that swept the background first (cases 1 and 2) was then eaten by its parasite, which starved in turn and left a desert. A host capped early by its parasite while the background was still the majority (case 4, and the unresolved coexistences in runs 46, mini `-d` and pi-1) settled into a standoff that 60,000 further epochs did not resolve.
 - Across the thirteen emergences seen so far, clean takeovers are the minority: five takeovers, two parasite-driven extinctions, five coexistences, one fade.
+- The heads variant adds a failure mode of its own (case 5): a copy loop that tests the destination byte instead of the source is blocked by zeros, plants zeros with every copy, and cannot repair its own debris, which keeps running the loop and kills it. Whether the loop reads `.` and tests the source or reads `,` and tests the destination decides whether a replicator can survive the soup it creates.

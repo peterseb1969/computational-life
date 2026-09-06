@@ -242,6 +242,7 @@ Write-ups of what the runs showed live in `docs/findings/`; the run archives the
 
 - [A parasite kills the first life in a BFF soup](docs/findings/parasite-macbook-1.md): emergence at 49k epochs, a loopless variant that reproduces by hijacking the replicator's copy loop, host extinction, parasite extinction, a desert, a crystal.
 - [Catalogue of hosts and parasites](docs/findings/parasite-catalogue.md): every pair found so far, with the raw bytes to replay them in the stepper.
+- [A replicator that poisons its own soup](docs/findings/self-poisoning-mini-j.md): in the heads variant, a copier that tests its destination byte takes 22 percent of the soup in fifty epochs, floods it with zeros, and is killed by its own debris.
 
 ## Metrics
 
