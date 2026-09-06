@@ -21,8 +21,9 @@ A soup of random 64-byte programs is repeatedly paired up. Each pair is executed
 python3 -m venv .venv && source .venv/bin/activate      # Python 3.11+
 pip install -r requirements.txt                          # numpy, numba, brotli
 
-# A statistics run: 131072 programs, the paper's step budget, sampled metrics, stops 8192 epochs
-# after replicators hold 1% of the soup, capped at 100k epochs. The run is named <host>-<date>-<letter>.
+# A statistics run: 131072 programs, the paper's step budget, sampled metrics, stops once the outcome is
+# clear (takeover, extinction after emergence, or 32k unresolved epochs), capped at 100k epochs.
+# The run is named <host>-<date>-<letter>.
 # On an M4 Pro this runs at 60+ epochs/s before replicators appear and slows during takeover.
 python3 bff_soup.py --stats
 
@@ -123,8 +124,8 @@ python3 bff_soup.py --resume runs/44/checkpoints/0000010240.dat     # a specific
 
 ```
 simulation:
-  --stats               Preset: 131072 programs, 8192 steps, sampled metrics, --stop-selfreps 1311
-                        --stop-after 8192, cap 100000 epochs (explicit flags win)
+  --stats               Preset: 131072 programs, 8192 steps, sampled metrics, --stop-outcome
+                        --stop-after 2048, cap 100000 epochs (explicit flags win)
   --num N               Number of programs, even (default: 1024)
   --epochs N            Run until this epoch number (default: 10000)
   --seed S              Random seed: a number, or any name (hashed; also the run's name).
@@ -157,6 +158,8 @@ stop conditions (optional):
   --stop-entropy X      Stop when higher-order entropy exceeds X (may fire a few epochs late)
   --stop-share X        Stop when one species exceeds X percent of the soup
   --stop-selfreps N     Stop when at least N slots hold a self-replicator
+  --stop-outcome        After emergence (replicators in 1% of the soup): stop on takeover (half the soup for
+                        2048 epochs), extinction (none for 1024 epochs) or 32768 unresolved epochs
   --stop-after N        Keep running N more epochs after a stop condition fires
 ```
 
@@ -228,7 +231,7 @@ python3 bff_compare.py --families      # leading family cores across runs, recur
 python3 bff_compare.py --csv runs.csv  # one row per run
 ```
 
-**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of the [results repository](https://github.com/peterseb1969/computational-life-results), and commit the archive when a run ends. For statistics let runs stop themselves: the `--stats` preset stops 8192 epochs after self-replicators first hold 1% of the soup, long enough to see whether a takeover, a parasite or a collapse follows. The archive dates both the **emergence** (replicators at 1%) and the **transition** (entropy above 3, replicators in half the soup, or distinct keys below 5%), and `bff_compare.py --survival` shows both curves. A run that reaches the epoch cap without the event is a censored observation.
+**Collecting statistics across machines.** Archives are named `<host>-<seed>.json` and carry the host, the parameters and a **protocol** label derived from them (for example `128k-8192`, `128k-8192-mut` or `128k-8192-heads`; override with `--protocol`), so runs from several machines can be grouped. Point the simulator at a shared collection with `--archive-dir` or `BFF_ARCHIVE_DIR`, for instance a clone of the [results repository](https://github.com/peterseb1969/computational-life-results), and commit the archive when a run ends. For statistics let runs stop themselves: the `--stats` preset uses `--stop-outcome`, which waits for the story to end after self-replicators first hold 1% of the soup: a takeover held for 2048 epochs, an extinction (no self-replicator for 1024 epochs, as after a parasite), or 32768 unresolved epochs of coexistence. The archive dates both the **emergence** (replicators at 1%) and the **transition** (entropy above 3, replicators in half the soup, or distinct keys below 5%), and `bff_compare.py --survival` shows both curves. A run that reaches the epoch cap without the event is a censored observation.
 
 ## Findings
 

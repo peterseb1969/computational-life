@@ -47,6 +47,42 @@ def _now():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
+class OutcomeDetector:
+    """
+    Decides when a statistics run has told its story. Fed the self-replication count
+    after every test (every --selfrep-interval epochs):
+      emergence   self-replicators hold >= 1% of the soup (recorded, not a stop)
+      takeover    >= 50% of the soup at 8 consecutive tests after emergence
+      extinction  no self-replicator at 4 consecutive tests after emergence (parasites, fading)
+      unresolved  32768 epochs after emergence without either (coexistence)
+    Returns the reason string when the run should stop, else None.
+    """
+
+    def __init__(self, num_programs, takeover_tests=8, extinct_tests=4, unresolved_epochs=32768):
+        self.n = num_programs
+        self.takeover_tests, self.extinct_tests, self.unresolved_epochs = takeover_tests, extinct_tests, unresolved_epochs
+        self.emerged = None
+        self.high = 0
+        self.zero = 0
+
+    def update(self, epoch, selfrep_slots):
+        if selfrep_slots < 0:
+            return None
+        if self.emerged is None:
+            if selfrep_slots >= 0.01 * self.n:
+                self.emerged = epoch
+            return None
+        self.high = self.high + 1 if selfrep_slots >= 0.5 * self.n else 0
+        self.zero = self.zero + 1 if selfrep_slots == 0 else 0
+        if self.high >= self.takeover_tests:
+            return f"takeover: self-replicators in half the soup at {self.high} consecutive tests (emerged at epoch {self.emerged})"
+        if self.zero >= self.extinct_tests:
+            return f"extinction: no self-replicator at {self.zero} consecutive tests after emergence at epoch {self.emerged}"
+        if epoch - self.emerged >= self.unresolved_epochs:
+            return f"unresolved: {epoch - self.emerged} epochs after emergence at epoch {self.emerged} without takeover or extinction"
+        return None
+
+
 def host_name():
     return socket.gethostname().split('.')[0].lower()
 
@@ -94,7 +130,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
              species_interval=32, selfrep_interval=256, selfrep_top=512,
              lineage_min_len=DEFAULT_MIN_LEN, lineage_budget_mb=DEFAULT_BUDGET_MB,
              lineage_window=None, promote_count=None, cascade_depth=None, cascade_max=None,
-             stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0,
+             stop_entropy=None, stop_share=None, stop_selfreps=None, stop_after=0, stop_outcome=False,
              print_interval=100, seed_programs=None, archive=True, archive_dir='archive', protocol=None,
              heads=False):
     """Run (or resume) the simulation. Returns the final soup."""
@@ -192,7 +228,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
         'cascade_max': cascade_max,
         'compressor': core.COMPRESSOR, 'max_epochs': max_epochs,
         'stop': {'entropy': stop_entropy, 'share': stop_share, 'selfreps': stop_selfreps,
-                 'after': stop_after},
+                 'after': stop_after, 'outcome': stop_outcome},
         'log_columns': LOG_COLUMNS,
         'protocol': protocol or meta.get('protocol') or protocol_name(num_programs, max_steps, mutation_prob, heads)
                     + ('-resumed' if meta.get('protocol') is None and resume_path else ''),
@@ -237,6 +273,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     t_last = t0
     epoch_last = start_epoch
     stop_at = None
+    outcome = OutcomeDetector(num_programs) if stop_outcome else None
     selfrep_slots = -1
     if resume_path:   # carry the last known self-replicator count across the resume
         last = lineage.db.execute("SELECT MAX(epoch) FROM selfrep").fetchone()[0]
@@ -245,6 +282,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                                      (SELFREP_THRESHOLD, last)).fetchone()
             selfrep_slots = int(row[0])
     epoch = start_epoch - 1
+    outcome_reason = None
     metrics = {'higher_entropy': float('nan'), 'bpb': float('nan'), 'h0': float('nan'),
                'compressed': -1, 'nbytes': 0}
     pool = ThreadPoolExecutor(max_workers=2)   # compression overlaps later epochs (brotli releases the GIL)
@@ -302,6 +340,11 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 scores = core.selfrep_test(reps, seed=epoch, max_steps=max_steps, heads_init=heads)
                 lineage.record_selfrep(epoch, uniq[order], scores, counts[order])
                 selfrep_slots = int(counts[order][scores >= SELFREP_THRESHOLD].sum())
+                outcome_reason = outcome.update(epoch, selfrep_slots) if outcome is not None else None
+                if outcome is not None and outcome.emerged == epoch:
+                    print(f"*** Self-replicators emerged at epoch {epoch} ({selfrep_slots} slots) ***", flush=True)
+                    meta['emergence_epoch'] = epoch
+                    rd.write_meta(meta)
 
             # -- checkpoint --------------------------------------------------
             if checkpoint_interval and epoch % checkpoint_interval == 0 and epoch != 0:
@@ -326,9 +369,13 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                       f"{selfrep_slots:8d} {rate:6.1f}", flush=True)
 
             # -- stop conditions ---------------------------------------------
-            if stop_at is None and (stop_entropy is not None or stop_share is not None or stop_selfreps is not None):
-                reason = None              # entropy may lag a few epochs behind (metrics run in the background)
-                if stop_entropy is not None and metrics['higher_entropy'] > stop_entropy:
+            if stop_at is None and (stop_entropy is not None or stop_share is not None or stop_selfreps is not None
+                                    or outcome is not None):
+                reason = outcome_reason if outcome is not None else None
+                outcome_reason = None      # entropy may lag a few epochs behind (metrics run in the background)
+                if reason:
+                    pass
+                elif stop_entropy is not None and metrics['higher_entropy'] > stop_entropy:
                     reason = f"higher-order entropy {metrics['higher_entropy']:.2f} > {stop_entropy}"
                 elif stop_share is not None and 100 * top_share > stop_share:
                     reason = f"top species share {100 * top_share:.1f}% > {stop_share}%"
@@ -387,8 +434,8 @@ def main(argv=None):
                    help="random seed: a number, or any name (hashed to an integer; also the run's name). "
                         "Default: <host>-<date>-<letter>")
     g.add_argument("--stats", action="store_true",
-                   help="statistics preset: 131072 programs, 8192 steps, sampled metrics, stop 8192 epochs after "
-                        "replicators hold 1%% of the soup, cap 100000 epochs (explicit flags win)")
+                   help="statistics preset: 131072 programs, 8192 steps, sampled metrics, --stop-outcome with "
+                        "--stop-after 2048, cap 100000 epochs (explicit flags win)")
     g.add_argument("--heads", action="store_true",
                    help="the paper's 'bff' variant: the first two tape bytes set the head positions, execution starts at byte 2")
     g.add_argument("--mutation-prob", type=float, default=None,
@@ -437,18 +484,22 @@ def main(argv=None):
     g.add_argument("--stop-share", type=float, default=None,
                    help="stop when one species exceeds this percentage of the soup")
     g.add_argument("--stop-selfreps", type=int, default=None,
-                   help="stop when at least this many slots hold a self-replicator (1311 = 1%% with --stats)")
+                   help="stop when at least this many slots hold a self-replicator")
+    g.add_argument("--stop-outcome", action="store_const", const=True, default=None,
+                   help="after self-replicators emerge (1%% of the soup), stop once they hold half the soup for "
+                        "2048 epochs (takeover), are gone for 1024 epochs (extinction), or 32768 epochs pass "
+                        "(unresolved); on with --stats")
     g.add_argument("--stop-after", type=int, default=None,
-                   help="keep running this many epochs after a stop condition fires (8192 with --stats)")
+                   help="keep running this many epochs after a stop condition fires (2048 with --stats)")
     args = p.parse_args(argv)
 
     # defaults, with the --stats preset filling in what was not given explicitly
     # stop on emergence (replicators in 1% of the soup) plus enough epochs to see whether a takeover,
     # a parasite or a collapse follows; a takeover criterion alone can wait forever
     preset = ({'num': 131072, 'epochs': 100000, 'max_steps': 8192, 'metric_sample': 32768,
-               'stop_selfreps': 1311, 'stop_after': 8192} if args.stats else {})
+               'stop_after': 2048, 'stop_outcome': True} if args.stats else {})
     base = {'num': 1024, 'epochs': 10000, 'max_steps': DEFAULT_MAX_STEPS, 'metric_sample': 0,
-            'stop_selfreps': None, 'stop_after': 0}
+            'stop_after': 0, 'stop_outcome': False}
     for k, v in base.items():
         if getattr(args, k) is None:
             setattr(args, k, preset.get(k, v))
@@ -465,7 +516,7 @@ def main(argv=None):
         lineage_budget_mb=args.lineage_budget_mb, lineage_window=args.lineage_window,
         promote_count=args.promote_count, cascade_depth=args.cascade_depth, cascade_max=args.cascade_max,
         stop_entropy=args.stop_entropy, stop_share=args.stop_share,
-        stop_selfreps=args.stop_selfreps, stop_after=args.stop_after,
+        stop_selfreps=args.stop_selfreps, stop_after=args.stop_after, stop_outcome=bool(args.stop_outcome),
         print_interval=args.print_interval, seed_programs=args.seed_programs, archive=not args.no_archive,
         archive_dir=args.archive_dir, protocol=args.protocol, heads=args.heads,
     )
