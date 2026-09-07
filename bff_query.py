@@ -695,13 +695,9 @@ def main(argv=None):
             groups.setdefault(find(i), []).append(i)
         engines = sorted(groups.values(), key=lambda g: (-len(g), ev[g[0]]['epoch']))
         eps = np.array([c['epoch'] for c in ev])
-        n_lin = sum(1 for c in events if c.get('kind') == 'lineage')
-        if a.json:
-            print(json.dumps({'origins': len(ev), 'last_epoch': last, 'lineage_species_removed': n_lin,
-                              'engines': [{'origins': len(g), 'first_epoch': min(ev[i]['epoch'] for i in g),
-                                           'loops': sorted(core.copy_loops(keys[g[0]])), 'keys': [keys[i] for i in g]} for g in engines]}, indent=1))
-            return
-        print(f"{len(ev)} origins over {last + 1} epochs ({n_lin} further species removed as their lineages); "
+        n_lin = sum(1 for c in events if c.get('kind') in ('lineage', 'parent'))
+        n_off = sum(1 for c in events if c.get('kind') == 'offspring')
+        print(f"{len(ev)} origins over {last + 1} epochs ({n_off} offspring and {n_lin} further species removed as lineages); "
               f"first at {eps.min()}, {1000 * len(ev) / (last + 1):.2f} per 1000 epochs overall")
         if len(eps) > 1:
             gaps = np.diff(np.sort(eps))
