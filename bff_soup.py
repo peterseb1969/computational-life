@@ -434,10 +434,18 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                             all_keys = [core.program_key(soup[j]) for j in first_idx]
                             all_sigs = [core.engine_signatures(kj) for kj in all_keys]
                         members = set(core.near_variants(soup[first_idx], key, core.variant_distance(key)).tolist())
-                        if loops:
-                            members.update(j for j, kj in enumerate(all_keys) if any(l in kj for l in loops))
-                        if sigs:      # the lineage's variants that mutated the body of their loop
-                            members.update(j for j, sj in enumerate(all_sigs) if sj & sigs)
+                        # a loop or signature shared by more than a small fraction of all species is a common
+                        # motif of the soup, not a mark of this lineage: matching on it would replace a large
+                        # part of the pool with fresh programs and re-fertilise it
+                        cap = max(64, len(all_keys) // 200)
+                        for l in loops:
+                            carriers = [j for j, kj in enumerate(all_keys) if l in kj]
+                            if len(carriers) <= cap:
+                                members.update(carriers)
+                        for sg in sigs:      # the lineage's variants that mutated the body of their loop
+                            carriers = [j for j, sj in enumerate(all_sigs) if sg in sj]
+                            if len(carriers) <= cap:
+                                members.update(carriers)
                         for j in members:
                             if j not in doomed:
                                 doomed[j] = (all_keys[j], -1, 'lineage')
