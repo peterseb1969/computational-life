@@ -38,6 +38,11 @@ from bff_core import TAPE_SIZE, DEFAULT_MAX_STEPS, SELFREP_THRESHOLD, SELFREP_ST
 
 SPIKE_TEST_SHARE = 0.01     # a species reaching this share (and doubling since the last test) is tested at once
 SPIKE_MIN_LEN = 5           # ... if it has at least this many instructions
+CULL_LINEAGE_WINDOW = 64    # a culled lineage's members were written within this many epochs of its first appearance
+CULL_TRACE_SLOTS = 32       # copies of a caught replicator whose writers are traced back ...
+CULL_TRACE_DEPTH = 3        # ... over this many writes, to find the founder however old it is
+CULL_SAMPLE = 1024          # random slots tested at every cull round besides the most common species
+CULL_LOOP_DIST = 2          # a species whose copy loop is within this many edits of the hit's is its lineage
 from bff_lineage import (RunDir, LineageWriter, truncate_log, migrate_log, DEFAULT_MIN_LEN, DEFAULT_BUDGET_MB,
                          DEFAULT_WINDOW, DEFAULT_PROMOTE_COUNT, DEFAULT_CASCADE_DEPTH, DEFAULT_CASCADE_MAX)
 # imported up front so that a code update during a long run cannot leave the exit-time archive
@@ -350,6 +355,7 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
     if cull_replicators and os.path.exists(culls_path):
         with open(culls_path) as f:
             culls = [json.loads(line) for line in f if line.strip()]
+    last_changed = np.full(num_programs, start_epoch - 1, dtype=np.int64)    # epoch a slot's key last changed
     n_removed = sum(1 for c in culls if c['kind'] == 'replicator')   # every removed replicator is one origin:
     # its lineage (offspring and carriers of its loop) goes with it, so a later appearance of the same
     # engine was made anew from the pool
@@ -406,57 +412,109 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
             cur_hash, cur_len = core.compute_keys(soup)
 
             # -- origin-rate experiment: remove every replicator as soon as it is seen ----------
+            if cull_replicators:
+                last_changed[cur_hash != prev_hash] = epoch
             if cull_replicators and epoch % cull_interval == 0:
                 uniq, first_idx, counts = core.unique_counts(cur_hash)
                 long_enough = np.flatnonzero(cur_len[first_idx] >= SPIKE_MIN_LEN)
                 cand = long_enough[np.argsort(-counts[long_enough], kind='stable')[:selfrep_top]]
+                # a lineage spread thin over unique keys never reaches the most common species: a random
+                # slot sample catches it (its species are added to the candidates)
+                sample_slots = np.random.default_rng([int(seed), 5, int(epoch)]).choice(num_programs, CULL_SAMPLE, replace=False)
+                sample_species = np.unique(np.searchsorted(np.sort(uniq), cur_hash[sample_slots]))
+                order = np.argsort(uniq)
+                sample_species = order[sample_species]                        # back to unique_counts order
+                cand = np.unique(np.concatenate([cand, sample_species[cur_len[first_idx[sample_species]] >= SPIKE_MIN_LEN]]))
                 scores = core.selfrep_test(soup[first_idx[cand]], seed=epoch, max_steps=max_steps, heads_init=heads)
                 hits = np.flatnonzero(scores >= SELFREP_THRESHOLD)
                 if hits.size:
                     # A replicator is a lineage, not a key: a copier that copies only part of itself lives in
                     # thousands of keys with varying junk, and some lineages mutate the body of their loop.
-                    # Remove every species in the soup that carries one of the hit's copy loops, shares an
-                    # engine signature with it, or lies within a few edits of it (the lineage and the debris
-                    # it re-forms from); the tested hit is logged as the removal, the rest as its lineage.
-                    all_keys = None
-                    doomed = {}
+                    # Its members carry one of the hit's copy loops, share an engine signature with it, or
+                    # lie within a few edits of it, AND were written since the lineage first appeared: the
+                    # same motifs sit in pool programs that have been there since epoch 0, and those stay.
+                    all_keys = [core.program_key(soup[j]) for j in first_idx]
+                    all_sigs = [core.engine_signatures(kj) for kj in all_keys]
+                    all_loops = [core.copy_loops(kj) for kj in all_keys]
+                    distinct_loops = set().union(*all_loops) if all_loops else set()
+                    uniq_sorted, inv = np.unique(cur_hash, return_inverse=True)     # slot -> sorted species index
+                    species_of = np.searchsorted(uniq_sorted, uniq)               # unique_counts index -> sorted index
+                    doomed = {}          # species index (unique_counts order) -> (key, score, kind)
+                    doom_slots = np.zeros(num_programs, dtype=np.bool_)
                     programs = {}
+                    founders = []
+                    perm_cache = {}
                     for k in hits:
-                        i = cand[k]
+                        i = int(cand[k])
                         key = core.program_key(soup[first_idx[i]])
-                        if int(i) in doomed:
+                        if i in doomed:
                             continue
-                        doomed[int(i)] = (key, int(scores[k]), 'replicator')
-                        programs[int(i)] = soup[first_idx[i]].tobytes().hex()     # the raw bytes, head values included
+                        doomed[i] = (key, int(scores[k]), 'replicator')
+                        programs[i] = soup[first_idx[i]].tobytes().hex()     # the raw bytes, head values included
+                        hit_slots = np.flatnonzero(cur_hash == uniq[i])
+                        doom_slots[hit_slots] = True
+                        since = max(int(last_changed[hit_slots].min()), epoch - CULL_LINEAGE_WINDOW)
                         loops = core.copy_loops(key)
                         sigs = core.engine_signatures(key)
-                        if all_keys is None:
-                            all_keys = [core.program_key(soup[j]) for j in first_idx]
-                            all_sigs = [core.engine_signatures(kj) for kj in all_keys]
-                        members = set(core.near_variants(soup[first_idx], key, core.variant_distance(key)).tolist())
-                        # a loop or signature shared by more than a small fraction of all species is a common
-                        # motif of the soup, not a mark of this lineage: matching on it would replace a large
-                        # part of the pool with fresh programs and re-fertilise it
-                        cap = max(64, len(all_keys) // 200)
-                        for l in loops:
-                            carriers = [j for j, kj in enumerate(all_keys) if l in kj]
-                            if len(carriers) <= cap:
-                                members.update(carriers)
-                        for sg in sigs:      # the lineage's variants that mutated the body of their loop
-                            carriers = [j for j, sj in enumerate(all_sigs) if sg in sj]
-                            if len(carriers) <= cap:
-                                members.update(carriers)
-                        for j in members:
-                            if j not in doomed:
-                                doomed[j] = (all_keys[j], -1, 'lineage')
-                    for n_done, (i, (key, score, kind)) in enumerate(sorted(doomed.items())):
-                        slots = np.flatnonzero(cur_hash == uniq[i])
-                        rng = np.random.default_rng([int(seed), 3, int(epoch), n_done])
-                        if cull_dist is None:
-                            soup[slots] = rng.integers(0, 256, (slots.size, TAPE_SIZE), dtype=np.uint8)
-                        else:
-                            soup[slots] = rng.choice(256, size=(slots.size, TAPE_SIZE), p=cull_dist).astype(np.uint8)
-                        event = {'epoch': epoch, 'key': key, 'count': int(slots.size), 'score': score, 'kind': kind}
+                        # The founder: each caught copy was written by its partner of the epoch in which
+                        # its slot last changed, and the pairing is replay-exact. Follow the writes back a
+                        # few steps and remove every writer that carries the engine, however old it is; a
+                        # pool program that copies only its engine into partners is caught this way and
+                        # not through its offspring.
+                        frontier = [int(x) for x in hit_slots[:CULL_TRACE_SLOTS]]
+                        for _ in range(CULL_TRACE_DEPTH):
+                            writers = []
+                            for slot in frontier:
+                                e_w = int(last_changed[slot])
+                                if e_w < start_epoch or e_w > epoch:
+                                    continue
+                                perm_w = perm_cache.get(e_w)
+                                if perm_w is None:
+                                    perm_w = perm_cache[e_w] = core.partners_from_perm(core.epoch_permutation(seed, e_w, num_programs))
+                                w = int(perm_w[slot])
+                                if doom_slots[w]:
+                                    continue
+                                wk = core.program_key(soup[w])
+                                if (core.copy_loops(wk) & loops) or (core.engine_signatures(wk) & sigs) or core._near(wk, key, core.variant_distance(key)):
+                                    doom_slots[w] = True
+                                    founders.append(w)
+                                    writers.append(w)
+                            frontier = writers
+                            if not frontier:
+                                break
+                        carriers = set(core.near_variants(soup[first_idx], key, core.variant_distance(key)).tolist())
+                        carriers.update(j for j, kj in enumerate(all_keys) if any(l in kj for l in loops))
+                        carriers.update(j for j, sj in enumerate(all_sigs) if sj & sigs)
+                        # a lineage that garbles its engine as it copies: loops within two edits of the hit's
+                        if loops:
+                            near_loops = {l2 for l2 in distinct_loops if any(core.edit_distance(l, l2) <= CULL_LOOP_DIST for l in loops)}
+                            carriers.update(j for j, lj in enumerate(all_loops) if lj & near_loops)
+                        carriers.discard(i)
+                        if carriers:
+                            carrier_mask = np.zeros(uniq_sorted.size, dtype=np.bool_)
+                            carrier_mask[species_of[np.fromiter(carriers, dtype=np.int64)]] = True
+                            recent = carrier_mask[inv] & (last_changed >= since) & ~doom_slots
+                            doom_slots |= recent
+                            for j in carriers:
+                                if j not in doomed and recent[cur_hash == uniq[j]].any():
+                                    doomed[j] = (all_keys[j], -1, 'lineage')
+                    for w in founders:              # the writers found by tracing count as lineage removals
+                        j = int(np.searchsorted(uniq_sorted, cur_hash[w]))     # sorted index -> unique_counts index
+                        j = int(np.flatnonzero(species_of == j)[0])
+                        if j not in doomed:
+                            doomed[j] = (all_keys[j], -1, 'lineage')
+                    # replace the doomed slots with fresh programs from the initial distribution
+                    slots = np.flatnonzero(doom_slots)
+                    rng = np.random.default_rng([int(seed), 3, int(epoch)])
+                    if cull_dist is None:
+                        soup[slots] = rng.integers(0, 256, (slots.size, TAPE_SIZE), dtype=np.uint8)
+                    else:
+                        soup[slots] = rng.choice(256, size=(slots.size, TAPE_SIZE), p=cull_dist).astype(np.uint8)
+                    n_lin_species = sum(1 for _, (_, _, kd) in doomed.items() if kd == 'lineage')
+                    n_lin_slots = int(slots.size - sum(np.count_nonzero(cur_hash == uniq[j]) for j, (_, _, kd) in doomed.items() if kd == 'replicator'))
+                    for i, (key, score, kind) in sorted(doomed.items()):
+                        count = int(np.count_nonzero((cur_hash == uniq[i]) & doom_slots))
+                        event = {'epoch': epoch, 'key': key, 'count': count, 'score': score, 'kind': kind}
                         if kind == 'replicator':
                             n_removed += 1
                             event['program'] = programs[i]
@@ -464,10 +522,8 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                         with open(culls_path, 'a') as f:
                             f.write(json.dumps(event) + '\n')
                         if kind == 'replicator':
-                            n_lin = sum(1 for _, (_, _, kd) in doomed.items() if kd == 'lineage')
-                            n_slots = sum(np.count_nonzero(cur_hash == uniq[j]) for j, (_, _, kd) in doomed.items() if kd == 'lineage')
-                            print(f"*** cull at epoch {epoch}: origin {n_removed}, {key!r} ({slots.size} copies, score {score}); "
-                                  f"its lineage: {n_lin} more species, {n_slots} slots, all replaced by random programs ***",
+                            print(f"*** cull at epoch {epoch}: origin {n_removed}, {key!r} ({count} copies, score {score}); "
+                                  f"lineage sweep this round: {n_lin_species} species, {n_lin_slots} slots, all replaced by random programs ***",
                                   flush=True)
                 if hits.size:
                     cur_hash, cur_len = core.compute_keys(soup)
