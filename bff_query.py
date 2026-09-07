@@ -23,6 +23,7 @@ Command line:
 
 import argparse
 import functools
+import collections
 import json
 import os
 import re
@@ -708,7 +709,10 @@ def main(argv=None):
             step = max(1000, int(round((last + 1) / 10, -3)))
             print("origins per window: " + ", ".join(f"{lo}-{min(lo + step, last + 1)}: {int(((eps >= lo) & (eps < lo + step)).sum())}"
                                                    for lo in range(0, last + 1, step)))
-        print(f"{len(engines)} distinct engines (origins sharing a copy loop or within 3 edits):")
+        sig_groups = collections.Counter(next(iter(sorted(core.engine_signatures(k)))) if core.engine_signatures(k) else '(none)' for k in keys)
+        print(f"{len(sig_groups)} distinct engine signatures (head moves | copy instructions of the loop): "
+              + ", ".join(f"{sg} x{n}" for sg, n in sig_groups.most_common(8)) + (" ..." if len(sig_groups) > 8 else ""))
+        print(f"{len(engines)} distinct engines (origins sharing a copy loop, a signature, or within 3 edits):")
         print(f"{'origins':>7} {'first':>7}  engine")
         for g in engines[:25]:
             i0 = min(g, key=lambda i: ev[i]['epoch'])

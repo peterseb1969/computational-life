@@ -414,9 +414,10 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                 hits = np.flatnonzero(scores >= SELFREP_THRESHOLD)
                 if hits.size:
                     # A replicator is a lineage, not a key: a copier that copies only part of itself lives in
-                    # thousands of keys with varying junk. Remove every species in the soup that carries one
-                    # of the hit's copy loops or lies within a few edits of it (the lineage and the debris it
-                    # re-forms from); the tested hit is logged as the removal, the rest as its lineage.
+                    # thousands of keys with varying junk, and some lineages mutate the body of their loop.
+                    # Remove every species in the soup that carries one of the hit's copy loops, shares an
+                    # engine signature with it, or lies within a few edits of it (the lineage and the debris
+                    # it re-forms from); the tested hit is logged as the removal, the rest as its lineage.
                     all_keys = None
                     doomed = {}
                     programs = {}
@@ -428,11 +429,15 @@ def run_soup(num_programs=1024, max_epochs=10000, seed=42, run_dir_path=None,
                         doomed[int(i)] = (key, int(scores[k]), 'replicator')
                         programs[int(i)] = soup[first_idx[i]].tobytes().hex()     # the raw bytes, head values included
                         loops = core.copy_loops(key)
+                        sigs = core.engine_signatures(key)
                         if all_keys is None:
                             all_keys = [core.program_key(soup[j]) for j in first_idx]
+                            all_sigs = [core.engine_signatures(kj) for kj in all_keys]
                         members = set(core.near_variants(soup[first_idx], key, core.variant_distance(key)).tolist())
                         if loops:
                             members.update(j for j, kj in enumerate(all_keys) if any(l in kj for l in loops))
+                        if sigs:      # the lineage's variants that mutated the body of their loop
+                            members.update(j for j, sj in enumerate(all_sigs) if sj & sigs)
                         for j in members:
                             if j not in doomed:
                                 doomed[j] = (all_keys[j], -1, 'lineage')

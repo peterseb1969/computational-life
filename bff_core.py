@@ -399,9 +399,26 @@ def copy_loops(key):
     return {l for l in re.findall(r'\[[^\[\]]*\]', key) if '.' in l or ',' in l}
 
 
+def engine_signature(loop):
+    """
+    What a copy loop does, stripped of how often: the sequence of head moves inside it and the set of
+    copy instructions. '[{>.-,]', '[{>..]' and '[{>.,.]' are one engine ('{>|.,' / '{>|.'), variants of
+    a lineage that mutates the body of its loop; '[,<{]' and '[,{<]' are different engines.
+    """
+    body = loop[1:-1]
+    return ''.join(ch for ch in body if ch in '<>{}') + '|' + ''.join(sorted(set(ch for ch in body if ch in '.,')))
+
+
+def engine_signatures(key):
+    return {engine_signature(l) for l in copy_loops(key)}
+
+
 def same_lineage(a, b, max_dist=3):
-    """Two replicator keys are one lineage if they share an innermost loop or lie within max_dist edits (up to reversal)."""
-    if copy_loops(a) & copy_loops(b):
+    """
+    Two replicator keys are one lineage if they share a copy loop, share an engine signature, or lie
+    within max_dist edits of each other (up to reversal).
+    """
+    if copy_loops(a) & copy_loops(b) or engine_signatures(a) & engine_signatures(b):
         return True
     return _near(a, b, max_dist)
 
